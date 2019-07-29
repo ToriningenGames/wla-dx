@@ -70,6 +70,17 @@ add_custom_command(
 	)
 ADD_CUSTOM_TARGET(MCS6510_table ALL DEPENDS ${CMAKE_BINARY_DIR}/opcodes_6510_tables.c)
 
+# --- WLA_TARGET=I8008
+add_executable (gen_I8008 ${CFILES})
+set_target_properties (gen_I8008 PROPERTIES COMPILE_DEFINITIONS "I8008")
+# Generate tables
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/opcodes_8008_tables.c
+	COMMAND gen_I8008
+	DEPENDS gen_I8008
+	)
+ADD_CUSTOM_TARGET(I8008_table ALL DEPENDS ${CMAKE_BINARY_DIR}/opcodes_8008_tables.c)
+
 # --- WLA_TARGET=W65816
 add_executable (gen_W65816 ${CFILES})
 set_target_properties (gen_W65816 PROPERTIES COMPILE_DEFINITIONS "W65816")

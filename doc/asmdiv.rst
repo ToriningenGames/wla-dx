@@ -9,8 +9,8 @@ Here's the order in which the data is placed into the output:
 4. Group 1 directives.
 
 === ================================================================
-ALL All, GB-Z80, Z80, 6502, 65C02, 6510, 65816, HUC6280, SPC-700 and
-    6800 versions apply.
+ALL All, GB-Z80, Z80, 6502, 65C02, 6510, 65816, HUC6280, SPC-700,
+    8008, and 6800 versions apply.
 GB  Only the GB-Z80 version applies.
 GB8 Only the GB-Z80 and 65816 versions apply.
 Z80 Only the Z80 version applies.
@@ -18,7 +18,7 @@ Z80 Only the Z80 version applies.
 680 Only the 6800 version applies.
 SPC Only the SPC-700 version applies.
 65x Only the 6502, 65C02, 6510, 65816 and HUC6280 versions apply.
-!GB Only the Z80, 6502, 65C02, 6510, 65816, HUC6280 and SPC-700
+!GB Only the Z80, 6502, 65C02, 6510, 65816, HUC6280, SPC-700, 8008, and 6800
     versions apply.
 === ================================================================
 
