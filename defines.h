@@ -9,6 +9,7 @@
 #define HINT_8BIT  1
 #define HINT_16BIT 2
 #define HINT_24BIT 3
+#define HINT_32BIT 4
 
 #define HINT_TYPE_NONE    0
 #define HINT_TYPE_GIVEN   1
@@ -334,6 +335,22 @@
 #define OP_SIZE_MAX 16
 #define ARCH_STR "MC6809"
 #define WLA_NAME "6809"
+
+#endif
+
+/**************************************************************/
+/* 68000                                                      */
+/**************************************************************/
+
+#ifdef MC68000
+
+/* opcode types */
+
+/* TBD */
+
+#define OP_SIZE_MAX 12
+#define ARCH_STR "MC68000"
+#define WLA_NAME "68000"
 
 #endif
 
