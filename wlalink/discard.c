@@ -55,8 +55,8 @@ int discard_unused_sections(void) {
     s = sec_first;
     while (s != NULL) {
       if (s->alive == NO)
-	fprintf(stderr, "DISCARD: %s: %s: Section \"%s\" was discarded.\n",
-		get_file_name(s->file_id), get_source_file_name(s->file_id, s->file_id_source), s->name);
+        fprintf(stderr, "DISCARD: %s: %s: Section \"%s\" was discarded.\n",
+                get_file_name(s->file_id), get_source_file_name(s->file_id, s->file_id_source), s->name);
       s = s->next;
     }
   }
@@ -78,7 +78,7 @@ int discard_iteration(void) {
   /* check section names for special characters '!', and check if the section is of proper type */
   s = sec_first;
   while (s != NULL) {
-    if (s->name[0] == '!' || !(s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_SEMIFREE || s->status == SECTION_STATUS_SEMISUBFREE || s->status == SECTION_STATUS_SUPERFREE || s->status == SECTION_STATUS_RAM)) {
+    if (s->keep == YES || s->name[0] == '!' || !(s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_SEMIFREE || s->status == SECTION_STATUS_SEMISUBFREE || s->status == SECTION_STATUS_SUPERFREE || s->status == SECTION_STATUS_RAM_FREE || s->status == SECTION_STATUS_RAM_SEMIFREE || s->status == SECTION_STATUS_RAM_SEMISUBFREE)) {
       s->referenced++;
       s->alive = YES;
     }
@@ -181,32 +181,32 @@ int discard_drop_labels(void) {
       /* find the section */
       s = sec_first;
       while (s->id != l->section)
-	s = s->next;
+        s = s->next;
       /* is it dead? */
       if (s->alive == NO) {
-	/* nope! remove the label! */
+        /* nope! remove the label! */
 
-	/* don't actually free the label from memory, but mark it dead
-	struct label *ll;
+        /* don't actually free the label from memory, but mark it dead
+           struct label *ll;
 
-	if (l->prev == NULL)
-	  labels_first = l->next;
-	else
-	  l->prev->next = l->next;
-	if (l->next != NULL)
-	  l->next->prev = l->prev;
-	ll = l->next;
+           if (l->prev == NULL)
+           labels_first = l->next;
+           else
+           l->prev->next = l->next;
+           if (l->next != NULL)
+           l->next->prev = l->prev;
+           ll = l->next;
 
-	free(l);
+           free(l);
 
-	l = ll;
-	*/
-	l->alive = NO;
+           l = ll;
+        */
+        l->alive = NO;
 
-	l = l->next;
+        l = l->next;
       }
       else
-	l = l->next;
+        l = l->next;
     }
     else
       l = l->next;

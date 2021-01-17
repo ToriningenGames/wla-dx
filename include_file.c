@@ -10,14 +10,16 @@
 #include "include_file.h"
 #include "pass_1.h"
 #include "parse.h"
+#include "printf.h"
 
 
 extern int ind, inz, i, unfolded_size, extra_definitions, d, use_incdir;
-extern char *unfolded_buffer, tmp[4096], emsg[sizeof(tmp) + MAX_NAME_LENGTH + 1 + 1024], ext_incdir[MAX_NAME_LENGTH + 2];
+extern char *unfolded_buffer, tmp[4096], emsg[sizeof(tmp) + MAX_NAME_LENGTH + 1 + 1024];
+extern struct ext_include_collection ext_incdirs;
 extern FILE *file_out_ptr;
 
 struct incbin_file_data *incbin_file_data_first = NULL, *ifd_tmp;
-struct active_file_info *active_file_info_first = NULL, *active_file_info_last = NULL, *active_file_info_tmp;
+struct active_file_info *active_file_info_first = NULL, *active_file_info_last = NULL, *active_file_info_tmp = NULL;
 struct file_name_info *file_name_info_first = NULL, *file_name_info_last = NULL, *file_name_info_tmp;
 char *include_in_tmp = NULL, *tmp_a = NULL;
 int include_in_tmp_size = 0, tmp_a_size = 0, file_name_id = 1, open_files = 0;
@@ -44,9 +46,9 @@ int create_full_name(char *dir, char *name) {
   /* compute the length of the new string */
   i = 0;
   if (dir != NULL)
-    i += strlen(dir);
+    i += (int)strlen(dir);
   if (name != NULL)
-    i += strlen(name);
+    i += (int)strlen(name);
   i++;
 
   if (i > full_name_size) {
@@ -71,52 +73,54 @@ int create_full_name(char *dir, char *name) {
 }
 
 
-int include_file(char *name) {
+int try_open_file(char* directory, char* partial_name, int print_errors, FILE** out_result) {
 
-  static int first_load = 0;
-  int file_size, id;
-  char *tmp_b, *n, *tmp_c;
-  FILE *f;
+  int error_code = create_full_name(directory, partial_name);
+  if (error_code != FAILED)
+    *out_result = fopen(full_name, "rb");
 
-
-  /* create the full output file name */
-  if (use_incdir == YES)
-    tmp_c = ext_incdir;
-  else
-    tmp_c = include_dir;
-
-  if (create_full_name(tmp_c, name) == FAILED)
-    return FAILED;
-
-  f = fopen(full_name, "rb");
-  id = 0;
-
-  if (f == NULL && (tmp_c == NULL || tmp_c[0] == 0)) {
-    sprintf(emsg, "Error opening file \"%s\".\n", name);
-    if (first_load == 0)
+  if (*out_result == NULL && (directory == NULL || directory[0] == 0)) {
+    snprintf(emsg, sizeof(emsg), "Error opening file \"%s\".\n", partial_name);
+    if (print_errors == 0)
       fprintf(stderr, "INCLUDE_FILE: %s", emsg);
     else
       print_error(emsg, ERROR_INC);
-    return FAILED;
+    error_code = FAILED;
   }
 
-  /* if not found in ext_incdir silently try the include directory */
-  if (f == NULL && use_incdir == YES) {
-    if (create_full_name(include_dir, name) == FAILED)
-      return FAILED;
-  
-    f = fopen(full_name, "rb");
-    id = 0;
-  
-    if (f == NULL && (include_dir == NULL || include_dir[0] == 0)) {
-      sprintf(emsg, "Error opening file \"%s\".\n", name);
-      if (first_load == 0)
-        fprintf(stderr, "INCLUDE_FILE: %s", emsg);
-      else
-        print_error(emsg, ERROR_INC);
-      return FAILED;
+  return error_code;
+}
+
+
+int include_file(char *name, int *include_size, char *namespace) {
+
+  static int first_load = 0;
+  int file_size, id, change_file_buffer_size, index;
+  char *tmp_b, *n, change_file_buffer[MAX_NAME_LENGTH * 2];
+  FILE *f = NULL;
+
+  if (use_incdir == YES) {
+    /* check all external include directories first */
+    for (index = 0; index < ext_incdirs.count; index++) {
+      int error_code = try_open_file(ext_incdirs.names[index], name, first_load, &f);
+      if (error_code != SUCCEEDED)
+        return error_code;
+
+      /* we succeeded and found a valid file, so escape */
+      if (f != NULL)
+        break;
     }
   }
+
+  /* fall through to include_dir if we either didn't check, or failed to find the file in ext_incdirs */
+  if (f == NULL) {
+    int error_code = try_open_file(include_dir, name, first_load, &f);
+    if (error_code != SUCCEEDED)
+      return error_code;
+  }
+
+  if (f != NULL)
+    id = 0;
 
   /* if failed try to find the file in the current directory */
   if (f == NULL) {
@@ -128,7 +132,7 @@ int include_file(char *name) {
 
   if (f == NULL) {
     fprintf(stderr, "not found.\n");
-    sprintf(emsg, "Error opening file \"%s\".\n", full_name);
+    snprintf(emsg, sizeof(emsg), "Error opening file \"%s\".\n", full_name);
     if (first_load == 0)
       fprintf(stderr, "INCLUDE_FILE: %s", emsg);
     else
@@ -143,57 +147,33 @@ int include_file(char *name) {
 
   first_load = 1;
 
-  if (extra_definitions == ON) {
-    redefine("WLA_FILENAME", 0.0, name, DEFINITION_TYPE_STRING, (int)strlen(name));
-    redefine("wla_filename", 0.0, name, DEFINITION_TYPE_STRING, (int)strlen(name));
-  }
-
   fseek(f, 0, SEEK_END);
   file_size = (int)ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  active_file_info_tmp = calloc(sizeof(struct active_file_info), 1);
-  if (active_file_info_tmp == NULL) {
-    sprintf(emsg, "Out of memory while trying allocate error tracking data structure for file \"%s\".\n", full_name);
-    print_error(emsg, ERROR_INC);
-    return FAILED;
-  }
-  active_file_info_tmp->next = NULL;
-
-  if (active_file_info_first == NULL) {
-    active_file_info_first = active_file_info_tmp;
-    active_file_info_last = active_file_info_tmp;
-    active_file_info_tmp->prev = NULL;
-  }
-  else {
-    active_file_info_tmp->prev = active_file_info_last;
-    active_file_info_last->next = active_file_info_tmp;
-    active_file_info_last = active_file_info_tmp;
-  }
-
-  active_file_info_tmp->line_current = 1;
-
   /* name */
   file_name_info_tmp = file_name_info_first;
   id = 0;
-  while (file_name_info_tmp != NULL) {
-    if (strcmp(file_name_info_tmp->name, full_name) == 0) {
-      id = file_name_info_tmp->id;
-      active_file_info_tmp->filename_id = id;
-      break;
-    }
-    file_name_info_tmp = file_name_info_tmp->next;
-  }
+
+  /* NOTE: every filename, even included multiple times, is unique
+     while (file_name_info_tmp != NULL) {
+     if (strcmp(file_name_info_tmp->name, full_name) == 0) {
+     id = file_name_info_tmp->id;
+     break;
+     }
+     file_name_info_tmp = file_name_info_tmp->next;
+     }
+  */
 
   if (id == 0) {
     file_name_info_tmp = calloc(sizeof(struct file_name_info), 1);
     n = calloc(strlen(full_name)+1, 1);
     if (file_name_info_tmp == NULL || n == NULL) {
       if (file_name_info_tmp != NULL)
-	free(file_name_info_tmp);
+        free(file_name_info_tmp);
       if (n != NULL)
-	free(n);
-      sprintf(emsg, "Out of memory while trying allocate info structure for file \"%s\".\n", full_name);
+        free(n);
+      snprintf(emsg, sizeof(emsg), "Out of memory while trying allocate info structure for file \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
       return FAILED;
     }
@@ -210,10 +190,16 @@ int include_file(char *name) {
 
     strcpy(n, full_name);
     file_name_info_tmp->name = n;
-    active_file_info_tmp->filename_id = file_name_id;
     file_name_info_tmp->id = file_name_id;
+    id = file_name_id;
     file_name_id++;
   }
+
+  if (namespace == NULL || namespace[0] == 0)
+    snprintf(change_file_buffer, sizeof(change_file_buffer), "%c.CHANGEFILE %d NONAMESPACE%c", 0xA, id, 0xA);
+  else
+    snprintf(change_file_buffer, sizeof(change_file_buffer), "%c.CHANGEFILE %d NAMESPACE %s%c", 0xA, id, namespace, 0xA);
+  change_file_buffer_size = (int)strlen(change_file_buffer);
 
   /* reallocate buffer */
   if (include_in_tmp_size < file_size) {
@@ -222,7 +208,7 @@ int include_file(char *name) {
 
     include_in_tmp = calloc(sizeof(char) * file_size, 1);
     if (include_in_tmp == NULL) {
-      sprintf(emsg, "Out of memory while trying to allocate room for \"%s\".\n", full_name);
+      snprintf(emsg, sizeof(emsg), "Out of memory while trying to allocate room for \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
       return FAILED;
     }
@@ -238,58 +224,63 @@ int include_file(char *name) {
   file_name_info_tmp->checksum = crc32((unsigned char*)include_in_tmp, file_size);
 
   if (size == 0) {
-    buffer = calloc(sizeof(char) * (file_size + 4), 1);
+    buffer = calloc(sizeof(char) * (change_file_buffer_size + (file_size + 4)), 1);
     if (buffer == NULL) {
-      sprintf(emsg, "Out of memory while trying to allocate room for \"%s\".\n", full_name);
+      snprintf(emsg, sizeof(emsg), "Out of memory while trying to allocate room for \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
       return FAILED;
     }
 
+    memcpy(buffer, change_file_buffer, change_file_buffer_size);
+    
     /* preprocess */
-    preprocess_file(include_in_tmp, include_in_tmp + file_size, buffer, &size, full_name);
+    preprocess_file(include_in_tmp, include_in_tmp + file_size, &buffer[change_file_buffer_size], &size, full_name);
+    size += change_file_buffer_size;
 
     buffer[size++] = 0xA;
     buffer[size++] = '.';
     buffer[size++] = 'E';
     buffer[size++] = ' ';
 
-    open_files++;
+    *include_size = size;
 
     return SUCCEEDED;
   }
 
-  tmp_b = calloc(sizeof(char) * (size + file_size + 4), 1);
+  tmp_b = calloc(sizeof(char) * (size + change_file_buffer_size + file_size + 4), 1);
   if (tmp_b == NULL) {
-    sprintf(emsg, "Out of memory while trying to expand the project to incorporate file \"%s\".\n", full_name);
+    snprintf(emsg, sizeof(emsg), "Out of memory while trying to expand the project to incorporate file \"%s\".\n", full_name);
     print_error(emsg, ERROR_INC);
     return FAILED;
   }
 
   /* reallocate tmp_a */
-  if (tmp_a_size < file_size + 4) {
+  if (tmp_a_size < change_file_buffer_size + file_size + 4) {
     if (tmp_a != NULL)
       free(tmp_a);
 
-    tmp_a = calloc(sizeof(char) * (file_size + 4), 1);
+    tmp_a = calloc(sizeof(char) * (change_file_buffer_size + file_size + 4), 1);
     if (tmp_a == NULL) {
-      sprintf(emsg, "Out of memory while allocating new room for \"%s\".\n", full_name);
+      snprintf(emsg, sizeof(emsg), "Out of memory while allocating new room for \"%s\".\n", full_name);
       print_error(emsg, ERROR_INC);
+      free(tmp_b);
       return FAILED;
     }
 
-    tmp_a_size = file_size + 4;
+    tmp_a_size = change_file_buffer_size + file_size + 4;
   }
 
+  memcpy(tmp_a, change_file_buffer, change_file_buffer_size);
+      
   /* preprocess */
   inz = 0;
-  preprocess_file(include_in_tmp, include_in_tmp + file_size, tmp_a, &inz, full_name);
+  preprocess_file(include_in_tmp, include_in_tmp + file_size, &tmp_a[change_file_buffer_size], &inz, full_name);
+  inz += change_file_buffer_size;
 
   tmp_a[inz++] = 0xA;
   tmp_a[inz++] = '.';
   tmp_a[inz++] = 'E';
   tmp_a[inz++] = ' ';
-
-  open_files++;
 
   memcpy(tmp_b, buffer, i);
   memcpy(tmp_b + i, tmp_a, inz);
@@ -300,6 +291,8 @@ int include_file(char *name) {
   size += inz;
   buffer = tmp_b;
 
+  *include_size = inz;
+  
   return SUCCEEDED;
 }
 
@@ -307,43 +300,34 @@ int include_file(char *name) {
 int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct macro_static **macro) {
 
   struct incbin_file_data *ifd;
-  char *in_tmp, *n, *tmp_c;
-  int file_size, q;
-  FILE *f;
+  char *in_tmp, *n;
+  int file_size, q, index;
+  FILE *f = NULL;
 
-  
-  /* create the full output file name */
-  if (use_incdir == YES)
-    tmp_c = ext_incdir;
-  else
-    tmp_c = include_dir;
+  if (use_incdir == YES) {
+    int error_code;
+    
+    /* check all external include directories first */
+    for (index = 0; index < ext_incdirs.count; ++index) {
+      error_code = try_open_file(ext_incdirs.names[index], name, 1, &f);
+      if (error_code != SUCCEEDED)
+        return error_code;
 
-  if (create_full_name(tmp_c, name) == FAILED)
-    return FAILED;
-
-  f = fopen(full_name, "rb");
-  q = 0;
-
-  if (f == NULL && (tmp_c == NULL || tmp_c[0] == 0)) {
-    sprintf(emsg, "Error opening file \"%s\".\n", name);
-    print_error(emsg, ERROR_INB);
-    return FAILED;
-  }
-
-  /* if not found in ext_incdir silently try the include directory */
-  if (f == NULL && use_incdir == YES) {
-    if (create_full_name(include_dir, name) == FAILED)
-      return FAILED;
-  
-    f = fopen(full_name, "rb");
-    q = 0;
-  
-    if (f == NULL && (include_dir == NULL || include_dir[0] == 0)) {
-      sprintf(emsg, "Error opening file \"%s\".\n", name);
-      print_error(emsg, ERROR_INB);
-      return FAILED;
+      /* we succeeded and found a valid file, so escape */
+      if (f != NULL)
+        break;
     }
   }
+
+  /* fall through to include_dir if we either didn't check, or failed to find the file in ext_incdirs */
+  if (f == NULL) {
+    int error_code = try_open_file(include_dir, name, 1, &f);
+    if (error_code != SUCCEEDED)
+      return error_code;
+  }
+
+  if (f != NULL)
+    q = 0;
 
   /* if failed try to find the file in the current directory */
   if (f == NULL) {
@@ -355,7 +339,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
 
   if (f == NULL) {
     fprintf(stderr, "not found.\n");
-    sprintf(emsg, "Error opening file \"%s\".\n", full_name);
+    snprintf(emsg, sizeof(emsg), "Error opening file \"%s\".\n", full_name);
     print_error(emsg, ERROR_INB);
     return FAILED;
   }
@@ -379,8 +363,9 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
       free(n);
     if (in_tmp != NULL)
       free(in_tmp);
-    sprintf(emsg, "Out of memory while allocating data structure for \"%s\".\n", full_name);
+    snprintf(emsg, sizeof(emsg), "Out of memory while allocating data structure for \"%s\".\n", full_name);
     print_error(emsg, ERROR_INB);
+    fclose(f);
     return FAILED;
   }
 
@@ -427,7 +412,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     *skip = d;
 
     if (d >= file_size) {
-      sprintf(emsg, "SKIP value (%d) is more than the size (%d) of file \"%s\".\n", d, file_size, full_name);
+      snprintf(emsg, sizeof(emsg), "SKIP value (%d) is more than the size (%d) of file \"%s\".\n", d, file_size, full_name);
       print_error(emsg, ERROR_INB);
       return FAILED;
     }
@@ -447,7 +432,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     *read = d;
 
     if (*skip + *read > file_size) {
-      sprintf(emsg, "Overreading file \"%s\" by %d bytes.\n", full_name, *skip + *read - file_size);
+      snprintf(emsg, sizeof(emsg), "Overreading file \"%s\" by %d bytes.\n", full_name, *skip + *read - file_size);
       print_error(emsg, ERROR_INB);
       return FAILED;
     }
@@ -458,7 +443,7 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     *swap = 0;
   else {
     if ((*read & 1) == 1) {
-      sprintf(emsg, "The read size of file \"%s\" is odd (%d)! Cannot perform SWAP.\n", full_name, *read);
+      snprintf(emsg, sizeof(emsg), "The read size of file \"%s\" is odd (%d)! Cannot perform SWAP.\n", full_name, *read);
       print_error(emsg, ERROR_INB);
       return FAILED;
     }
@@ -485,10 +470,11 @@ int incbin_file(char *name, int *id, int *swap, int *skip, int *read, struct mac
     if (get_next_token() == FAILED)
       return FAILED;
 
-    *macro = macro_get(tmp);
+    if (macro_get(tmp, YES, macro) == FAILED)
+      return FAILED;
 
     if (*macro == NULL) {
-      sprintf(emsg, "No MACRO \"%s\" defined.\n", tmp);
+      snprintf(emsg, sizeof(emsg), "No MACRO \"%s\" defined.\n", tmp);
       print_error(emsg, ERROR_INB);
       return FAILED;
     }
@@ -587,64 +573,77 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       /* clear a commented line */
       input++;
       for ( ; input < input_end && *input != 0x0A && *input != 0x0D; input++)
-	;
+        ;
       output--;
       for ( ; output > out_buffer && *output == ' '; output--)
-	;
+        ;
       if (output < out_buffer)
-	output = out_buffer;
+        output = out_buffer;
       else if (*output != ' ')
-	output++;
+        output++;
       break;
     case '*':
       if (got_chars_on_line == 0) {
-	/* clear a commented line */
-	input++;
-	for ( ; input < input_end && *input != 0x0A && *input != 0x0D; input++)
-	  ;
+        /* clear a commented line */
+        input++;
+        for ( ; input < input_end && *input != 0x0A && *input != 0x0D; input++)
+          ;
       }
       else {
-	/* multiplication! */
-	input++;
-	*output = '*';
-	output++;
+        /* multiplication! */
+        input++;
+        *output = '*';
+        output++;
       }
       break;
     case '/':
       if (*(input + 1) == '*') {
-	/* remove an ANSI C -style block comment */
-	got_chars_on_line = 0;
-	input += 2;
-	while (got_chars_on_line == 0) {
-	  for ( ; input < input_end && *input != '/' && *input != 0x0A; input++)
-	    ;
-	  if (input >= input_end) {
-	    sprintf(emsg, "Comment wasn't terminated properly in file \"%s\".\n", file_name);
-	    print_error(emsg, ERROR_INC);
-	    return FAILED;
-	  }
-	  if (*input == 0x0A) {
-	    *output = 0x0A;
-	    output++;
-	  }
-	  if (*input == '/' && *(input - 1) == '*') {
-	    got_chars_on_line = 1;
-	  }
-	  input++;
-	}
-	output--;
-	for ( ; output > out_buffer && *output == ' '; output--)
-	  ;
-	if (output < out_buffer)
-	  output = out_buffer;
-	else if (*output != ' ')
-	  output++;
+        /* remove an ANSI C -style block comment */
+        got_chars_on_line = 0;
+        input += 2;
+        while (got_chars_on_line == 0) {
+          for ( ; input < input_end && *input != '/' && *input != 0x0A; input++)
+            ;
+          if (input >= input_end) {
+            snprintf(emsg, sizeof(emsg), "Comment wasn't terminated properly in file \"%s\".\n", file_name);
+            print_error(emsg, ERROR_INC);
+            return FAILED;
+          }
+          if (*input == 0x0A) {
+            *output = 0x0A;
+            output++;
+          }
+          if (*input == '/' && *(input - 1) == '*') {
+            got_chars_on_line = 1;
+          }
+          input++;
+        }
+        output--;
+        for ( ; output > out_buffer && *output == ' '; output--)
+          ;
+        if (output < out_buffer)
+          output = out_buffer;
+        else if (*output != ' ')
+          output++;
+      }
+      else if (*(input + 1) == '/') {
+        /* C++ style comment -> clear a commented line */
+        input += 2;
+        for ( ; input < input_end && *input != 0x0A && *input != 0x0D; input++)
+          ;
+        output--;
+        for ( ; output > out_buffer && *output == ' '; output--)
+          ;
+        if (output < out_buffer)
+          output = out_buffer;
+        else if (*output != ' ')
+          output++;
       }
       else {
-	input++;
-	*output = '/';
-	output++;
-	got_chars_on_line = 1;
+        input++;
+        *output = '/';
+        output++;
+        got_chars_on_line = 1;
       }
       break;
     case ':':
@@ -661,17 +660,29 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       *output = ' ';
       output++;
       for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
-	;
+        ;
+      if (got_chars_on_line == 0 && (*input == '-' || *input == '+')) {
+        /* special case - -/--/--- or +/++/+++, but not at the beginning of the line, but after some white space */
+        output--;
+        for ( ; input < input_end && (*input == '+' || *input == '-'); input++, output++)
+          *output = *input;     
+      }
+      else if (got_chars_on_line == 0 && *input == '_') {
+        /* special case - _/__, but not at the beginning of the line, but after some white space */
+        output--;
+        for ( ; input < input_end && *input == '_'; input++, output++)
+          *output = *input;     
+      }
       got_chars_on_line = 1;
       if (z == 1)
-	z = 2;
+        z = 2;
       break;
     case 0x0A:
       /* take away white space from the end of the line */
       input++;
       output--;
       for ( ; output > out_buffer && *output == ' '; output--)
-	;
+        ;
       output++;
       *output = 0x0A;
       output++;
@@ -687,20 +698,20 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       break;
     case '\'':
       if (*(input + 2) == '\'') {
-	*output = '\'';
-	input++;
-	output++;
-	*output = *input;
-	input++;
-	output++;
-	*output = '\'';
-	input++;
-	output++;
+        *output = '\'';
+        input++;
+        output++;
+        *output = *input;
+        input++;
+        output++;
+        *output = '\'';
+        input++;
+        output++;
       }
       else {
-	*output = '\'';
-	input++;
-	output++;
+        *output = '\'';
+        input++;
+        output++;
       }
       got_chars_on_line = 1;
       break;
@@ -711,29 +722,29 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       output++;
       got_chars_on_line = 1;
       while (1) {
-	for ( ; input < input_end && *input != '"' && *input != 0x0A && *input != 0x0D; ) {
-	  *output = *input;
-	  input++;
-	  output++;
-	}
+        for ( ; input < input_end && *input != '"' && *input != 0x0A && *input != 0x0D; ) {
+          *output = *input;
+          input++;
+          output++;
+        }
 
-	if (input >= input_end)
-	  break;
-	else if (*input == 0x0A || *input == 0x0D) {
-	  /* process 0x0A/0x0D as usual, and later when we try to input a string, the parser will fail as 0x0A comes before a " */
-	  break;
-	}
-	else if (*input == '"' && *(input - 1) != '\\') {
-	  *output = '"';
-	  input++;
-	  output++;
-	  break;
-	}
-	else {
-	  *output = '"';
-	  input++;
-	  output++;
-	}
+        if (input >= input_end)
+          break;
+        else if (*input == 0x0A || *input == 0x0D) {
+          /* process 0x0A/0x0D as usual, and later when we try to input a string, the parser will fail as 0x0A comes before a " */
+          break;
+        }
+        else if (*input == '"' && *(input - 1) != '\\') {
+          *output = '"';
+          input++;
+          output++;
+          break;
+        }
+        else {
+          *output = '"';
+          input++;
+          output++;
+        }
       }
       break;
 #if !defined(W65816) && !defined(SPC700)
@@ -745,7 +756,7 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
       input++;
       output++;
       for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
-	;
+        ;
       got_chars_on_line = 1;
       break;
 #if !defined(W65816) && !defined(SPC700)
@@ -755,7 +766,7 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
     case ')':
       /* go back? */
       if (got_chars_on_line == 1 && *(output - 1) == ' ')
-	output--;
+        output--;
       *output = ')';
       input++;
       output++;
@@ -774,26 +785,26 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
     case '+':
     case '-':
       if (got_chars_on_line == 0) {
-	for ( ; input < input_end && (*input == '+' || *input == '-'); input++, output++)
-	  *output = *input;
-	got_chars_on_line = 1;
+        for ( ; input < input_end && (*input == '+' || *input == '-'); input++, output++)
+          *output = *input;
+        got_chars_on_line = 1;
       }
       else {
 #if defined(W65816) || defined(SPC700)
-	/* go back? */
-	if (*(output - 1) == ' ' && square_bracket_open == 1)
-	  output--;
+        /* go back? */
+        if (*(output - 1) == ' ' && square_bracket_open == 1)
+          output--;
 #else
-	/* go back? */
-	if ((z == 3 || *input == ',') && *(output - 1) == ' ')
-	  output--;
+        /* go back? */
+        if ((z == 3 || *input == ',') && *(output - 1) == ' ')
+          output--;
 #endif
-	*output = *input;
-	input++;
-	output++;
-	for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
-	  ;
-	got_chars_on_line = 1;
+        *output = *input;
+        input++;
+        output++;
+        for ( ; input < input_end && (*input == ' ' || *input == 0x09); input++)
+          ;
+        got_chars_on_line = 1;
       }
       break;
     default:
@@ -804,9 +815,9 @@ int preprocess_file(char *input, char *input_end, char *out_buffer, int *out_siz
 
       /* mode changes... */
       if (z == 0)
-	z = 1;
+        z = 1;
       else if (z == 2)
-	z = 3;
+        z = 3;
       break;
     }
   }

@@ -1,3 +1,5 @@
+#define FILE void
+#include "defines.h"
 struct optcode opt_table[] = {
   { "ACA", 0x88, 0, 0 },
   { "ACB", 0x89, 0, 0 },
@@ -17,6 +19,7 @@ struct optcode opt_table[] = {
   { "ADI x", 0x04, 1, 0 },
   { "ADL", 0x86, 0, 0 },
   { "ADM", 0x87, 0, 0 },
+
   { "CAL ?", 0x46, 2, 0 },
   { "CFC ?", 0x42, 2, 0 },
   { "CFP ?", 0x5A, 2, 0 },
@@ -35,13 +38,16 @@ struct optcode opt_table[] = {
   { "CTP ?", 0x7A, 2, 0 },
   { "CTS ?", 0x72, 2, 0 },
   { "CTZ ?", 0x6A, 2, 0 },
+
   { "DCB", 0x09, 0, 0 },
   { "DCC", 0x11, 0, 0 },
   { "DCD", 0x19, 0, 0 },
   { "DCE", 0x21, 0, 0 },
   { "DCH", 0x29, 0, 0 },
   { "DCL", 0x31, 0, 0 },
+
   { "HLT", 0xFF, 0, 0 },
+
   { "INB", 0x08, 0, 0 },
   { "INC", 0x10, 0, 0 },
   { "IND", 0x18, 0, 0 },
@@ -56,6 +62,7 @@ struct optcode opt_table[] = {
   { "INP *", 0x4B, 8, 5 },
   { "INP *", 0x4D, 8, 6 },
   { "INP *", 0x4F, 8, 7 },
+
   { "JFC ?", 0x40, 2, 0 },
   { "JFP ?", 0x58, 2, 0 },
   { "JFS ?", 0x50, 2, 0 },
@@ -65,6 +72,7 @@ struct optcode opt_table[] = {
   { "JTP ?", 0x78, 2, 0 },
   { "JTS ?", 0x70, 2, 0 },
   { "JTZ ?", 0x68, 2, 0 },
+
   { "LAB", 0xC1, 0, 0 },
   { "LAC", 0xC2, 0, 0 },
   { "LAD", 0xC3, 0, 0 },
@@ -135,6 +143,7 @@ struct optcode opt_table[] = {
   { "LMH", 0xFD, 0, 0 },
   { "LMI x", 0x2E, 1, 0 },
   { "LML", 0xFE, 0, 0 },
+
   { "NDA", 0xA0, 0, 0 },
   { "NDB", 0xA1, 0, 0 },
   { "NDC", 0xA2, 0, 0 },
@@ -145,6 +154,7 @@ struct optcode opt_table[] = {
   { "NDL", 0xA6, 0, 0 },
   { "NDM", 0xA7, 0, 0 },
   { "NOP", 0xC0, 0, 0 },
+
   { "ORA", 0xB0, 0, 0 },
   { "ORB", 0xB1, 0, 0 },
   { "ORC", 0xB2, 0, 0 },
@@ -178,6 +188,7 @@ struct optcode opt_table[] = {
   { "OUT *", 0x7B, 8, 29 },
   { "OUT *", 0x7D, 8, 30 },
   { "OUT *", 0x7F, 8, 31 },
+
   { "RAL", 0x12, 0, 0 },
   { "RAR", 0x1A, 0, 0 },
   { "RET", 0x07, 0, 0 },
@@ -195,10 +206,12 @@ struct optcode opt_table[] = {
   { "RST *", 0x2D, 8, 5 },
   { "RST *", 0x35, 8, 6 },
   { "RST *", 0x3D, 8, 7 },
+  { "RST *", 0x00, 100, 0 },
   { "RTC", 0x23, 0, 0 },
   { "RTP", 0x3B, 0, 0 },
   { "RTS", 0x33, 0, 0 },
   { "RTZ", 0x2B, 0, 0 },
+
   { "SBA", 0x98, 0, 0 },
   { "SBB", 0x99, 0, 0 },
   { "SBC", 0x9A, 0, 0 },
@@ -217,6 +230,7 @@ struct optcode opt_table[] = {
   { "SUI x", 0x14, 1, 0 },
   { "SUL", 0x96, 0, 0 },
   { "SUM", 0x97, 0, 0 },
+
   { "XRA", 0xA8, 0, 0 },
   { "XRB", 0xA9, 0, 0 },
   { "XRC", 0xAA, 0, 0 },
@@ -227,5 +241,5 @@ struct optcode opt_table[] = {
   { "XRL", 0xAE, 0, 0 },
   { "XRM", 0xAF, 0, 0 },
 
-  { "E", 0x100, -1, 0 }
+  { "E", 0x100, 0xFF, 0 }
 };

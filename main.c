@@ -1,8 +1,7 @@
 
 /*
-  wla - part of wla dx gb-z80/z80/6502/65c02/6800/6510/65816/huc6280/spc-700
-  macro assembler package by ville helin <vhelin@iki.fi>.
-  this is gpl software.
+  wla - part of wla dx gb-z80/z80/6502/65c02/6510/6800/6801/6809/65816/huc6280/spc-700/8008/8080
+  macro assembler package by ville helin <vhelin@iki.fi>. this is gpl software.
 */
 
 #include <ctype.h>
@@ -30,6 +29,7 @@ DWORD __stdcall GetCurrentProcessId(void);
 #include "pass_4.h"
 #include "listfile.h"
 #include "hashmap.h"
+#include "printf.h"
 
 
 FILE *file_out_ptr = NULL;
@@ -37,41 +37,11 @@ FILE *file_out_ptr = NULL;
 /* amiga specific definitions */
 
 #ifdef AMIGA
-long __stack = 200000;
+__near long __stack = 200000;
 #endif
 
-#ifdef GB
-char version_string[] = "$VER: WLA-GB 9.9a (29.7.2019)";
-#endif
-#ifdef Z80
-char version_string[] = "$VER: WLA-Z80 9.9a (29.7.2019)";
-#endif
-#ifdef MCS6502
-char version_string[] = "$VER: WLA-6502 9.9a (29.7.2019)";
-#endif
-#ifdef WDC65C02
-char version_string[] = "$VER: WLA-65C02 9.9a (29.7.2019)";
-#endif
-#ifdef W65816
-char version_string[] = "$VER: WLA-65816 9.9a (29.7.2019)";
-#endif
-#ifdef MCS6510
-char version_string[] = "$VER: WLA-6510 9.9a (29.7.2019)";
-#endif
-#ifdef MC6800
-char version_string[] = "$VER: WLA-6800 9.9a (29.7.2019)";
-#endif
-#ifdef I8008
-char version_string[] = "$VER: WLA-8008 9.9b (28.7.2019)";
-#endif
-#ifdef SPC700
-char version_string[] = "$VER: WLA-SPC700 9.9a (29.7.2019)";
-#endif
-#ifdef HUC6280
-char version_string[] = "$VER: WLA-HuC6280 9.9a (29.7.2019)";
-#endif
-
-char wla_version[] = "9.9a";
+char version_string[] = "$VER: wla-" WLA_NAME " 9.12a (9.1.2021)";
+char wla_version[] = "9.12";
 
 char *tmp_name = NULL;
 
@@ -92,8 +62,10 @@ extern struct filepointer *filepointers;
 extern struct map_t *namespace_map;
 extern struct append_section *append_sections;
 extern struct label_sizeof *label_sizeofs;
+extern struct block_name *block_names;
+extern struct stringmaptable *stringmaptables;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
-extern char *unfolded_buffer;
+extern char *unfolded_buffer, *label_stack[256];
 extern char *include_in_tmp, *tmp_a;
 extern char *rom_banks, *rom_banks_usage_table;
 extern char *include_dir, *buffer, *full_name;
@@ -102,14 +74,17 @@ extern int include_in_tmp_size, tmp_a_size, *banks, *bankaddress;
 int output_format = OUTPUT_NONE, verbose_mode = OFF, test_mode = OFF;
 int extra_definitions = OFF, commandline_parsing = ON, makefile_rules = NO;
 int listfile_data = NO, quiet = NO, use_incdir = NO, little_endian = YES;
+int create_sizeof_definitions = YES;
 
-char *final_name = NULL, *asm_name = NULL, ext_incdir[MAX_NAME_LENGTH + 2];
+char *final_name = NULL, *asm_name = NULL;
+
+struct ext_include_collection ext_incdirs;
+
 
 
 int main(int argc, char *argv[]) {
 
-  int parse_flags_result;
-  int n_ctr;
+  int parse_flags_result, n_ctr, q, include_size = 0;
   
   if (sizeof(double) != 8) {
     fprintf(stderr, "MAIN: sizeof(double) == %d != 8. WLA will not work properly.\n", (int)sizeof(double));
@@ -119,10 +94,15 @@ int main(int argc, char *argv[]) {
   atexit(procedures_at_exit);
 
   /* init the randon number generator */
-  init_genrand(time(NULL));
+  init_genrand((unsigned long)time(NULL));
+
+  /* initialize our external include dir collection */
+  ext_incdirs.count = 0;
+  ext_incdirs.names = NULL;
+  ext_incdirs.max_name_size_bytes = MAX_NAME_LENGTH + 1;
 
   /* select little/big endianess */
-#if MC6800
+#if defined(MC6800) || defined(MC6801) || defined(MC6809)
   little_endian = NO;
 #else
   little_endian = YES;
@@ -136,6 +116,15 @@ int main(int argc, char *argv[]) {
   global_unique_label_map = hashmap_new();
   namespace_map = hashmap_new();
 
+  /* init label stack */
+  for (q = 0; q < 256; q++)
+    label_stack[q] = NULL;
+  for (q = 0; q < 256; q++) {
+    label_stack[q] = calloc(MAX_NAME_LENGTH + 1, 1);
+    if (label_stack[q] == NULL)
+      return 1;
+  }
+  
   parse_flags_result = FAILED;
   if (argc >= 2) {
     parse_flags_result = parse_flags(argv, argc);
@@ -147,7 +136,7 @@ int main(int argc, char *argv[]) {
         final_name = calloc(strlen(asm_name)+1, 1);
         for (n_ctr = 0; n_ctr < (int)strlen(asm_name) && *((asm_name) + n_ctr) != '.'; n_ctr++)
           final_name[n_ctr] = *((asm_name) + n_ctr);
-	final_name[n_ctr++] = '.';
+        final_name[n_ctr++] = '.';
         final_name[n_ctr++] = 'o';
         final_name[n_ctr] = 0;
       }
@@ -155,55 +144,27 @@ int main(int argc, char *argv[]) {
   }
   
   if (output_format == OUTPUT_NONE || parse_flags_result == FAILED) {
-#ifdef GB
-    printf("\nWLA GB-Z80 Macro Assembler v9.9a\n");
-#endif
-#ifdef Z80
-    printf("\nWLA Z80 Macro Assembler v9.9a\n");
-#endif
-#ifdef MCS6502
-    printf("\nWLA 6502 Macro Assembler v9.9a\n");
-#endif
-#ifdef WDC65C02
-    printf("\nWLA 65C02 Macro Assembler v9.9a\n");
-#endif
-#ifdef MC6800
-    printf("\nWLA 6800 Macro Assembler v9.9a\n");
-#endif
-#ifdef I8008
-    printf("\nWLA 8008 Macro Assembler v9.9a\n");
-#endif
-#ifdef W65816
-    printf("\nWLA 65816 Macro Assembler v9.9a\n");
-#endif
-#ifdef MCS6510
-    printf("\nWLA 6510 Macro Assembler v9.9a\n");
-#endif
-#ifdef SPC700
-    printf("\nWLA SPC-700 Macro Assembler v9.9a\n");
-#endif
-#ifdef HUC6280
-    printf("\nWLA HuC6280 Macro Assembler v9.9a\n");
-#endif
+    printf("\nWLA " ARCH_STR " Macro Assembler v9.12a\n");
     printf("Written by Ville Helin in 1998-2008 - In GitHub since 2014: https://github.com/vhelin/wla-dx\n");
 #ifdef WLA_DEBUG
     printf("*** WLA_DEBUG defined - this executable is running in DEBUG mode ***\n");
 #endif
     printf("%s\n\n", version_string);
-    printf("USAGE: %s [OPTIONS] <ASM FILE>\n\n", argv[0]);
+    printf("USAGE: %s [OPTIONS] <OUTPUT> <ASM FILE>\n\n", argv[0]);
     printf("Options:\n");
     printf("-i  Add list file information\n");
     printf("-M  Output makefile rules\n");
     printf("-q  Quiet\n");
+    printf("-s  Don't create _sizeof_* definitions\n");
     printf("-t  Test compile\n");
     printf("-v  Verbose messages\n");
     printf("-x  Extra compile time labels & definitions\n");
-    printf("-I [DIR]  Include directory\n");
-    printf("-D [DEF]  Declare definition\n\n");
-    printf("Output types:\n");
-    printf("-o [FILE]  Output object file\n");
-    printf("-l [FILE]  Output library file\n\n");
-    printf("EXAMPLE: %s -v -o main.obj main.asm\n\n", argv[0]);
+    printf("-I <DIR>  Include directory\n");
+    printf("-D <DEF>  Declare definition\n\n");
+    printf("Output:\n");
+    printf("-o <FILE>  Output object file\n");
+    printf("-l <FILE>  Output library file\n\n");
+    printf("EXAMPLE: %s -D VERSION=1 -D TWO=2 -v -o main.obj main.asm\n\n", argv[0]);
     return 0;
   }
 
@@ -216,7 +177,7 @@ int main(int argc, char *argv[]) {
 
   file_out_ptr = fopen(tmp_name, "wb");
   if (file_out_ptr == NULL) {
-    fprintf(stderr, "MAIN: Error opening file \"%s\".\n", tmp_name);
+    fprintf(stderr, "MAIN: Error opening file \"%s\" for writing.\n", tmp_name);
     return 1;
   }
 
@@ -227,7 +188,7 @@ int main(int argc, char *argv[]) {
   commandline_parsing = OFF;
 
   /* start the process */
-  if (include_file(asm_name) == FAILED)
+  if (include_file(asm_name, &include_size, NULL) == FAILED)
     return 1;
 
   if (pass_1() == FAILED)
@@ -255,7 +216,7 @@ int parse_flags(char **flags, int flagc) {
   for (count = 1; count < flagc; count++) {
     if (!strcmp(flags[count], "-o")) {
       if (output_format != OUTPUT_NONE)
-	return FAILED;
+        return FAILED;
       output_format = OUTPUT_OBJECT;
       if (count + 1 < flagc) {
         /* set output */
@@ -270,7 +231,7 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-l")) {
       if (output_format != OUTPUT_NONE)
-	return FAILED;
+        return FAILED;
       output_format = OUTPUT_LIBRARY;
       if (count + 1 < flagc) {
         /* set output */
@@ -287,16 +248,17 @@ int parse_flags(char **flags, int flagc) {
       if (count + 1 < flagc) {
         if (count + 3 < flagc) {
           if (!strcmp(flags[count+2], "=")) {
-            str_build = calloc(strlen(flags[count+1])+strlen(flags[count+3])+2, 1);
-            sprintf(str_build, "%s=%s", flags[count+1], flags[count+3]);
+            int length = (int)strlen(flags[count+1])+(int)strlen(flags[count+3])+2;
+            str_build = calloc(length, 1);
+            snprintf(str_build, length, "%s=%s", flags[count+1], flags[count+3]);
             parse_and_add_definition(str_build, NO);
             free(str_build);
             count += 2;
           }
-	  else
+          else
             parse_and_add_definition(flags[count+1], NO);
         }
-	else
+        else
           parse_and_add_definition(flags[count+1], NO);
       }
       else
@@ -308,7 +270,7 @@ int parse_flags(char **flags, int flagc) {
     else if (!strcmp(flags[count], "-I")) {
       if (count + 1 < flagc) {
         /* get arg */
-        parse_and_set_incdir(flags[count+1], NO);
+        parse_and_add_incdir(flags[count+1], NO);
       }
       else
         return FAILED;
@@ -322,6 +284,10 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-v")) {
       verbose_mode = ON;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-s")) {
+      create_sizeof_definitions = NO;
       continue;
     }
     else if (!strcmp(flags[count], "-t")) {
@@ -345,25 +311,25 @@ int parse_flags(char **flags, int flagc) {
     }
     else {
       if (count == flagc - 1) {
-	asm_name = calloc(strlen(flags[count]) + 1, 1);
-	strcpy(asm_name, flags[count]);
-	count++;
-	asm_name_def++;
+        asm_name = calloc(strlen(flags[count]) + 1, 1);
+        strcpy(asm_name, flags[count]);
+        count++;
+        asm_name_def++;
       }
       else {
-	/* legacy support? */
-	if (strncmp(flags[count], "-D", 2) == 0) {
-	  /* old define */
-	  parse_and_add_definition(flags[count], YES);
-	  continue;
-	}
-	else if (strncmp(flags[count], "-I", 2) == 0) {
-	  /* old include directory */
-	  parse_and_set_incdir(flags[count], YES);
-	  continue;
-	}
-	else
-	  return FAILED;
+        /* legacy support? */
+        if (strncmp(flags[count], "-D", 2) == 0) {
+          /* old define */
+          parse_and_add_definition(flags[count], YES);
+          continue;
+        }
+        else if (strncmp(flags[count], "-I", 2) == 0) {
+          /* old include directory */
+          parse_and_add_incdir(flags[count], YES);
+          continue;
+        }
+        else
+          return FAILED;
       }
     }
   }
@@ -385,7 +351,8 @@ void procedures_at_exit(void) {
   struct filepointer *f1, *f2;
   struct append_section *as;
   struct label_sizeof *ls;
-  int i;
+  struct block_name *bn;
+  int i, index;
   
   /* free all the dynamically allocated data structures and close open files */
   if (file_out_ptr != NULL)
@@ -397,6 +364,9 @@ void procedures_at_exit(void) {
   free(asm_name);
   free(include_dir);
   free(full_name);
+
+  for (i = 0; i < 256; i++)
+    free(label_stack[i]);
 
   if (defines_map != NULL) {
     hashmap_free_all_elements(defines_map);
@@ -418,7 +388,7 @@ void procedures_at_exit(void) {
     /* free the argument labels */
     if (m->nargument_names > 0) {
       for (i = 0; i < m->nargument_names; i++)
-	free(m->argument_names[i]);
+        free(m->argument_names[i]);
       free(m->argument_names);
     }
     macros_first = m->next;
@@ -447,6 +417,13 @@ void procedures_at_exit(void) {
     ls = label_sizeofs;
   }
 
+  bn = block_names;
+  while (bn != NULL) {
+    block_names = bn->next;
+    free(bn);
+    bn = block_names;
+  }
+  
   export_tmp = export_first;
   while (export_tmp != NULL) {
     export_last = export_tmp->next;
@@ -524,9 +501,27 @@ void procedures_at_exit(void) {
     f1 = f2;
   }
 
+  while (stringmaptables != NULL) {
+    struct stringmaptable *sm = stringmaptables;
+    while (sm->entries != NULL) {
+      struct stringmap_entry *e = sm->entries;
+      free(e->bytes);
+      free(e->text);
+      sm->entries = e->next;
+      free(e);
+    }
+    stringmaptables = sm->next;
+    free(sm);
+  }
+
   /* remove the tmp files */
   if (tmp_name != NULL)
     remove(tmp_name);
+
+  /* cleanup any incdirs we added */
+  for (index = 0; index < ext_incdirs.count; index++)
+    free(ext_incdirs.names[index]);
+  free(ext_incdirs.names);
 }
 
 
@@ -538,17 +533,17 @@ int generate_tmp_name(char **filename) {
   int pid;
 
 #if defined(UNIX)
-    pid = (int)getpid();
+  pid = (int)getpid();
 #elif defined(WIN32)
-    pid = GetCurrentProcessId();
+  pid = GetCurrentProcessId();
 #else
-    #error "Invalid configuration!"
+  #error "Invalid configuration!"
 #endif
 
-  status = sprintf(name, ".wla%da", pid) + 1;
+  status = snprintf(name, sizeof(name)-1, ".wla%da", pid) + 1;
   if (status >= (int)sizeof(name)) {
     fprintf(stderr, "MAIN: Temp filename exceeded limit: %d >= %d! "
-	    "Aborting...\n", status, (int)sizeof(name));
+      "Aborting...\n", status, (int)sizeof(name));
     abort();
   }
 
@@ -595,7 +590,7 @@ int generate_extra_definitions(void) {
 
 int parse_and_add_definition(char *c, int contains_flag) {
 
-  char n[MAX_NAME_LENGTH + 1];
+  char n[MAX_NAME_LENGTH + 1], *value;
   int i;
 
   /* skip the flag? */
@@ -613,23 +608,25 @@ int parse_and_add_definition(char *c, int contains_flag) {
     if (*c == 0)
       return FAILED;
 
+    value = c;
+    
     /* hexadecimal value? */
     if (*c == '$' || ((c[strlen(c)-1] == 'h' || c[strlen(c)-1] == 'H') && (*c >= '0' && *c <= '9'))) {
       if (*c == '$')
-	c++;
+        c++;
       for (i = 0; *c != 0; c++) {
-	if (*c >= '0' && *c <= '9')
-	  i = (i << 4) + *c - '0';
-	else if (*c >= 'a' && *c <= 'f')
-	  i = (i << 4) + *c - 'a' + 10;
-	else if (*c >= 'A' && *c <= 'F')
-	  i = (i << 4) + *c - 'A' + 10;
-	else if ((*c == 'h' || *c == 'H') && *(c+1) == 0)
-	  break;
-	else {
-	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value.\n");
-	  return FAILED;
-	}
+        if (*c >= '0' && *c <= '9')
+          i = (i << 4) + *c - '0';
+        else if (*c >= 'a' && *c <= 'f')
+          i = (i << 4) + *c - 'a' + 10;
+        else if (*c >= 'A' && *c <= 'F')
+          i = (i << 4) + *c - 'A' + 10;
+        else if ((*c == 'h' || *c == 'H') && *(c+1) == 0)
+          break;
+        else {
+          fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value (%s).\n", value);
+          return FAILED;
+        }
       }
       return add_a_new_definition(n, (double)i, NULL, DEFINITION_TYPE_VALUE, 0);
     }
@@ -637,17 +634,49 @@ int parse_and_add_definition(char *c, int contains_flag) {
     /* decimal value? */
     if (*c >= '0' && *c <= '9') {
       for (i = 0; *c != 0; c++) {
-	if (*c >= '0' && *c <= '9')
-	  i = (i * 10) + *c - '0';
-	else {
-	  fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value.\n");
-	  return FAILED;
-	}
+        if (*c >= '0' && *c <= '9')
+          i = (i * 10) + *c - '0';
+        else {
+          fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Error in value (%s).\n", value);
+          return FAILED;
+        }
       }
       return add_a_new_definition(n, (double)i, NULL, DEFINITION_TYPE_VALUE, 0);
     }
 
-    /* string definition */
+    /* quoted string? */
+    if (*c == '"' && c[strlen(c) - 1] == '"') {
+      int t;
+      char *s = calloc(strlen(c) + 1, 1);
+      int result;
+
+      c++;
+      for (t = 0; *c != 0; c++, t++) {
+        if (*c == '\\' && *(c + 1) == '"') {
+          c++;
+          s[t] = '"';
+        }
+        else if (*c == '"') {
+          c++;
+          break;
+        }
+        else
+          s[t] = *c;
+      }
+      s[t] = 0;
+      
+      if (*c == 0)
+        result = add_a_new_definition(n, 0.0, s, DEFINITION_TYPE_STRING, (int)strlen(s));
+      else {
+        fprintf(stderr, "PARSE_AND_ADD_DEFINITION: Incorrectly terminated quoted string (%s).\n", value);
+        result = FAILED;
+      }
+      
+      free(s);
+      return result;
+    }
+
+    /* unquoted string */
     return add_a_new_definition(n, 0.0, c, DEFINITION_TYPE_STRING, (int)strlen(c));
   }
 
@@ -655,32 +684,47 @@ int parse_and_add_definition(char *c, int contains_flag) {
 }
 
 
-int parse_and_set_incdir(char *c, int contains_flag) {
+int parse_and_add_incdir(char* c, int contains_flag) {
 
+  int old_count = ext_incdirs.count, index, buffer_size, j;
+  char **new_array;
   char n[MAX_NAME_LENGTH + 1];
-  int i;
+
+  /* increment for the new entry, then re-allocate the array */
+  ext_incdirs.count++;
+  new_array = calloc(ext_incdirs.count * sizeof(char*), 1);
+  for (index = 0; index < old_count; index++)
+    new_array[index] = ext_incdirs.names[index];
+ 
+  free(ext_incdirs.names);
+  ext_incdirs.names = new_array;
+  buffer_size = ext_incdirs.max_name_size_bytes;
+  ext_incdirs.names[old_count] = calloc(buffer_size, 1);
 
   /* skip the flag? */
   if (contains_flag == YES)
     c += 2;
 
-  for (i = 0; i < MAX_NAME_LENGTH && *c != 0; i++, c++)
-    n[i] = *c;
-  n[i] = 0;
+  for (j = 0; j < MAX_NAME_LENGTH && *c != 0; j++, c++)
+    n[j] = *c;
+  n[j] = 0;
 
   if (*c != 0)
     return FAILED;
 
   localize_path(n);
+
 #if defined(MSDOS)
-  sprintf(ext_incdir, "%s\\", n);
+  snprintf(ext_incdirs.names[old_count], buffer_size, "%s\\", n);
 #else
-  sprintf(ext_incdir, "%s/", n);
+  snprintf(ext_incdirs.names[old_count], buffer_size, "%s/", n);
 #endif
+
   use_incdir = YES;
 
-  return FAILED;
+  return SUCCEEDED;
 }
+
 
 /*
  *

@@ -1,7 +1,7 @@
 
 /*
-	wlalink - part of wla dx gb-z80/z80/6502/65c02/6510/65816/huc6280/spc-700
-	macro assembler package by ville helin <vhelin@iki.fi>. this is gpl software.
+  wlalink - part of wla dx gb-z80/z80/6502/65c02/6510/6800/6801/6809/65816/huc6280/spc-700/8008/8080
+  macro assembler package by ville helin <vhelin@iki.fi>. this is gpl software.
 */
 
 #include <ctype.h>
@@ -19,16 +19,23 @@
 #include "compute.h"
 #include "discard.h"
 #include "listfile.h"
+#include "parse.h"
+
+#ifdef AMIGA
+#include "/printf.h"
+#else
+#include "../printf.h"
+#endif
 
 /* define this if you want to display debug information when you run WLALINK */
 /*
-#define WLALINK_DEBUG
+  #define WLALINK_DEBUG
 */
 
-char version_string[] = "$VER: WLALINK 5.11a (29.7.2019)";
+char version_string[] = "$VER: wlalink 5.14a (7.1.2021)";
 
 #ifdef AMIGA
-long __stack = 200000;
+__near long __stack = 200000;
 #endif
 
 struct object_file *obj_first = NULL, *obj_last = NULL, *obj_tmp;
@@ -43,24 +50,28 @@ struct slot slots[256];
 struct append_section *append_sections = NULL, *append_tmp;
 struct label_sizeof *label_sizeofs = NULL;
 unsigned char *rom, *rom_usage, *file_header = NULL, *file_footer = NULL;
+char load_address_label[MAX_NAME_LENGTH + 1];
+int load_address = 0, load_address_type = LOAD_ADDRESS_TYPE_UNDEFINED;
+char program_address_start_label[MAX_NAME_LENGTH + 1], program_address_end_label[MAX_NAME_LENGTH + 1];
+int program_address_start = -1, program_address_end = -1, program_address_start_type = LOAD_ADDRESS_TYPE_UNDEFINED, program_address_end_type = LOAD_ADDRESS_TYPE_UNDEFINED;
 int romsize, rombanks, banksize, verbose_mode = OFF, section_overwrite = OFF, symbol_mode = SYMBOL_MODE_NONE, output_addr_to_line = OFF;
 int pc_bank, pc_full, pc_slot, pc_slot_max;
 int file_header_size, file_footer_size, *banksizes = NULL, *bankaddress = NULL;
 int output_mode = OUTPUT_ROM, discard_unreferenced_sections = OFF, use_libdir = NO;
 int program_start, program_end, sms_checksum, smstag_defined = 0, snes_rom_mode = SNES_ROM_MODE_LOROM, snes_rom_speed = SNES_ROM_SPEED_SLOWROM, sms_header = 0;
-int gb_checksum, gb_complement_check, snes_checksum, cpu_65816 = 0, snes_mode = 0;
+int gb_checksum, gb_complement_check, snes_checksum, snes_mode = 0;
 int listfile_data = NO, smc_status = 0, snes_sramsize = 0;
-int num_sorted_anonymous_labels = 0, little_endian = YES;
-
+int output_type = OUTPUT_TYPE_UNDEFINED, sort_sections = YES;
+int num_sorted_anonymous_labels = 0, create_sizeof_definitions = YES;
 
 extern struct section_fix *sec_fix_first, *sec_fix_tmp;
 extern char mem_insert_action[MAX_NAME_LENGTH*3 + 1024];
 extern int emptyfill;
-char ext_libdir[MAX_NAME_LENGTH + 1];
-
+char ext_libdir[MAX_NAME_LENGTH + 2];
 
 
 #ifdef WLALINK_DEBUG
+
 static const char *si_operator_plus = "+";
 static const char *si_operator_minus = "-";
 static const char *si_operator_multiply = "*";
@@ -74,6 +85,7 @@ static const char *si_operator_modulo = "#";
 static const char *si_operator_xor = "~";
 static const char *si_operator_low_byte = "<";
 static const char *si_operator_high_byte = ">";
+static const char *si_operator_bank = ":";
 static const char *si_operator_unknown = "UNKNOWN!";
 
 static const char *get_stack_item_operator_name(int operator) {
@@ -104,6 +116,8 @@ static const char *get_stack_item_operator_name(int operator) {
     return si_operator_low_byte;
   else if (operator == SI_OP_HIGH_BYTE)
     return si_operator_high_byte;
+  else if (operator == SI_OP_BANK)
+    return si_operator_bank;
 
   return si_operator_unknown;
 }
@@ -115,26 +129,26 @@ char *get_stack_item_description(struct stack_item *si, int file_id) {
   char *sid = stack_item_description;
 
   if (si == NULL)
-    sprintf(sid, "NULL");
+    snprintf(sid, sizeof(stack_item_description), "NULL");
   else {
     int type = si->type;
     
     if (type == STACK_ITEM_TYPE_VALUE)
-      sprintf(sid, "stack_item: value              : %f/$%x\n", si->value, (int)si->value);
+      snprintf(sid, sizeof(stack_item_description), "stack_item: value              : %f/$%x (RAM) %f/$%x (ROM)\n", si->value_ram, (int)si->value_ram, si->value_rom, (int)si->value_rom);
     else if (type == STACK_ITEM_TYPE_OPERATOR)
-      sprintf(sid, "stack_item: operator           : %s\n", get_stack_item_operator_name((int)si->value));
+      snprintf(sid, sizeof(stack_item_description), "stack_item: operator           : %s\n", get_stack_item_operator_name((int)si->value_ram));
     else if (type == STACK_ITEM_TYPE_STRING)
-      sprintf(sid, "stack_item: label              : %s\n", si->string);
+      snprintf(sid, sizeof(stack_item_description), "stack_item: label              : %s\n", si->string);
     else if (type == STACK_ITEM_TYPE_STACK) {
-      struct stack *st = find_stack(si->value, file_id);
+      struct stack *st = find_stack((int)si->value_ram, file_id);
 
       if (st->computed == YES)
-	sprintf(sid, "stack_item: (stack) calculation: %d (result = %d/$%x)\n", (int)si->value, st->result, st->result);
+        snprintf(sid, sizeof(stack_item_description), "stack_item: (stack) calculation: %d (result = %d/$%x (RAM) %d/$%x (ROM))\n", (int)si->value_ram, st->result_ram, st->result_ram, st->result_rom, st->result_rom);
       else
-	sprintf(sid, "stack_item: (stack) calculation: %d (result = ?)\n", (int)si->value);
+        snprintf(sid, sizeof(stack_item_description), "stack_item: (stack) calculation: %d (result = ?)\n", (int)si->value_ram);
     }
     else
-      sprintf(sid, "stack_item: UNKNOWN!");
+      snprintf(sid, sizeof(stack_item_description), "stack_item: UNKNOWN!");
   }
   
   return sid;
@@ -144,8 +158,8 @@ static void debug_print_label(struct label *l) {
 
   printf("label: \"%s\" file: %s status: %d section: %d bank: %d slot: %d base: %d address: %d/$%x alive: %d\n", l->name, get_file_name(l->file_id), l->status, l->section, l->bank, l->slot, l->base, (int)l->address, (int)l->address, l->alive);
 }
-#endif
 
+#endif
 
 
 int main(int argc, char *argv[]) {
@@ -167,7 +181,7 @@ int main(int argc, char *argv[]) {
     x = FAILED;
 
   if (x == FAILED) {
-    printf("\nWLALINK GB-Z80/Z80/6502/65C02/6510/65816/HUC6280/SPC-700 WLA Macro Assembler Linker v5.11a\n");
+    printf("\nWLALINK GB-Z80/Z80/6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HUC6280/SPC-700 WLA Macro Assembler Linker v5.14a\n");
     printf("Written by Ville Helin in 2000-2008 - In GitHub since 2014: https://github.com/vhelin/wla-dx\n");
 #ifdef WLALINK_DEBUG
     printf("*** WLALINK_DEBUG defined - this executable is running in DEBUG mode ***\n");
@@ -176,14 +190,20 @@ int main(int argc, char *argv[]) {
     printf("USAGE: %s [OPTIONS] <LINK FILE> <OUTPUT FILE>\n\n", argv[0]);
     printf("Options:\n");
     printf("-b  Program file output\n");
+    printf("-bS Starting address of the program (optional)\n");
+    printf("-bE Ending address of the program (optional)\n");
     printf("-d  Discard unreferenced sections\n");
+    printf("-D  Don't create _sizeof_* definitions\n");
+    printf("-nS Don't sort the sections\n");
     printf("-i  Write list files\n");
     printf("-r  ROM file output (default)\n");
     printf("-s  Write also a NO$GMB/NO$SNES symbol file\n");
     printf("-S  Write also a WLA symbol file\n");
     printf("-A  Add address-to-line mapping data to WLA symbol file\n");
     printf("-v  Verbose messages\n");
-    printf("-L [DIR]  Library directory\n\n");
+    printf("-L <DIR>  Library directory\n");
+    printf("-t <TYPE> Output type (supported types: 'CBMPRG')\n");
+    printf("-a <ADDR> Load address for CBM PRG\n\n");
     printf("EXAMPLE: %s -d -v -S linkfile linked.rom\n\n", argv[0]);
     return 0;
   }
@@ -228,6 +248,10 @@ int main(int argc, char *argv[]) {
   if (obtain_memorymap() == FAILED)
     return 1;
 
+  /* convert slot names and addresses to slot numbers */
+  if (convert_slot_names_and_addresses() == FAILED)
+    return 1;
+  
   /* calculate romsize */
   for (romsize = 0, x = 0; x < rombanks; x++)
     romsize += banksizes[x];
@@ -252,8 +276,8 @@ int main(int argc, char *argv[]) {
   if (parse_data_blocks() == FAILED)
     return 1;
 
-  /* fix the library bank and slot of RAM sections, if specified in linkfile */
-  if (fix_ramsections() == FAILED)
+  /* fix the library bank, slot and org/orga of sections, if specified in linkfile */
+  if (fix_all_sections() == FAILED)
     return 1;
 
   /* check that all library RAM sections are given a bank and a slot */
@@ -294,10 +318,10 @@ int main(int argc, char *argv[]) {
     
     while (s != NULL) {
       if (strcmp(s->name, "!__WLA_SDSCTAG_STRINGS") == 0 ||
-	  strcmp(s->name, "!__WLA_SDSCTAG_TIMEDATE") == 0) {
-	/* these sections would originally go to 0x7Fnm, but as we now
-	   assume that the ROM is smaller, we'll bring them down */
-	s->address -= sub;
+          strcmp(s->name, "!__WLA_SDSCTAG_TIMEDATE") == 0) {
+        /* these sections would originally go to 0x7Fnm, but as we now
+           assume that the ROM is smaller, we'll bring them down */
+        s->address -= sub;
       }
 
       s = s->next;
@@ -326,10 +350,9 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     while (l != NULL) {
-      if (l->alive == YES) {
-	debug_print_label(l);
-	l = l->next;
-      }
+      if (l->alive == YES)
+        debug_print_label(l);
+      l = l->next;
     }
   }
 #endif
@@ -367,12 +390,12 @@ int main(int argc, char *argv[]) {
     while (s != NULL) {
       printf("----------------------------------------------------------------------\n");
       {
-	int z;
-	
-	for (z = 0; z < s->stacksize; z++) {
-	  struct stack_item *si = &s->stack[z];
-	  printf(get_stack_item_description(si, s->file_id));
-	}
+        int z;
+        
+        for (z = 0; z < s->stacksize; z++) {
+          struct stack_item *si = &s->stack[z];
+          printf(get_stack_item_description(si, s->file_id));
+        }
       }
       printf("id: %d file: %s line: %d type: %d bank: %d position: %d section_status: %d section: %d\n", s->id, get_file_name(s->file_id), s->linenumber, s->type, s->bank, s->position, s->section_status, s->section);
       s = s->next;
@@ -403,15 +426,18 @@ int main(int argc, char *argv[]) {
   if (sec_first != NULL) {
     struct section *s = sec_first;
     char *section_status[] = {
-     "FREE",
-     "FORCE",
-     "OVERWRITE",
-     "HEADER",
-     "SEMIFREE",
-     "ABSOLUTE",
-     "RAM",
-     "SUPERFREE",
-     "SEMISUBFREE"
+      "FREE",
+      "FORCE",
+      "OVERWRITE",
+      "HEADER",
+      "SEMIFREE",
+      "ABSOLUTE",
+      "RAM FREE",
+      "SUPERFREE",
+      "SEMISUBFREE",
+      "RAM FORCE",
+      "RAM SEMIFREE",
+      "RAM SEMISUBFREE"
     };
 
     printf("\n");
@@ -445,8 +471,10 @@ int main(int argc, char *argv[]) {
     return 1;
 
   /* generate _sizeof_[label] definitions */
-  if (generate_sizeof_label_definitions() == FAILED)
-    return 1;
+  if (create_sizeof_definitions == YES) {
+    if (generate_sizeof_label_definitions() == FAILED)
+      return 1;
+  }
 
   /* sort anonymous labels to speed up searching for them */
   if (sort_anonymous_labels() == FAILED)
@@ -463,10 +491,9 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     while (l != NULL) {
-      if (l->alive == YES) {
-	debug_print_label(l);
-	l = l->next;
-      }
+      if (l->alive == YES)
+        debug_print_label(l);
+      l = l->next;
     }
   }
 #endif
@@ -488,14 +515,14 @@ int main(int argc, char *argv[]) {
     while (s != NULL) {
       printf("----------------------------------------------------------------------\n");
       {
-	int z;
-	
-	for (z = 0; z < s->stacksize; z++) {
-	  struct stack_item *si = &s->stack[z];
-	  printf(get_stack_item_description(si, s->file_id));
-	}
+        int z;
+        
+        for (z = 0; z < s->stacksize; z++) {
+          struct stack_item *si = &s->stack[z];
+          printf(get_stack_item_description(si, s->file_id));
+        }
       }
-      printf("id: %d file: %s line: %d type: %d bank: %d position: %d section_status: %d section: %d result: %d/$%x\n", s->id, get_file_name(s->file_id), s->linenumber, s->type, s->bank, s->position, s->section_status, s->section, s->result, s->result);
+      printf("id: %d file: %s line: %d type: %d bank: %d position: %d section_status: %d section: %d result: %d/$%x (ROM) %d/$%x (RAM)\n", s->id, get_file_name(s->file_id), s->linenumber, s->type, s->bank, s->position, s->section_status, s->section, s->result_rom, s->result_rom, s->result_ram, s->result_ram);
       s = s->next;
     }
     printf("----------------------------------------------------------------------\n");
@@ -556,42 +583,42 @@ int main(int argc, char *argv[]) {
     x = 0;
     for (i = 0; i < romsize; i++) {
       if (rom_usage[i] == 0 && x == 0) {
-	x = 1;
-	y = i;
+        x = 1;
+        y = i;
       }
       else if (rom_usage[i] != 0 && x == 1) {
-	if (y == (i - 1))
-	  fprintf(stderr, "Free space at $%.4x.\n", y);
-	else
-	  fprintf(stderr, "Free space at $%.4x-$%.4x.\n", y, i - 1);
-	x = 0;
+        if (y == (i - 1))
+          fprintf(stderr, "Free space at $%.4x.\n", y);
+        else
+          fprintf(stderr, "Free space at $%.4x-$%.4x.\n", y, i - 1);
+        x = 0;
       }
     }
 
     if (x == 1) {
       if (y == (i - 1))
-	fprintf(stderr, "Free space at $%.4x.\n", y);
+        fprintf(stderr, "Free space at $%.4x.\n", y);
       else
-	fprintf(stderr, "Free space at $%.4x-$%.4x.\n", y, i - 1);
+        fprintf(stderr, "Free space at $%.4x-$%.4x.\n", y, i - 1);
     }
 
     for (y = 0, q = 0; y < romsize; q++) {
       for (x = 0, inz = 0; inz < banksizes[q]; inz++) {
-	if (rom_usage[y++] == 0)
-	  x++;
+        if (rom_usage[y++] == 0)
+          x++;
       }
       f = (((float)x)/banksizes[q]) * 100.0f;
       if (f == 100.0f)
-	fprintf(stderr, "Bank %.2d has %.5d bytes (%.1f%%) free.\n", q, x, f);
+        fprintf(stderr, "Bank %.2d has %.5d bytes (%.1f%%) free.\n", q, x, f);
       else
-	fprintf(stderr, "Bank %.2d has %.5d bytes (%.2f%%) free.\n", q, x, f);
+        fprintf(stderr, "Bank %.2d has %.5d bytes (%.2f%%) free.\n", q, x, f);
     }
 
     /* ROM data */
     if (output_mode == OUTPUT_ROM) {
       for (i = 0, y = 0; i < romsize; i++) {
-	if (rom_usage[i] == 0)
-	  y++;
+        if (rom_usage[i] == 0)
+          y++;
       }
 
       fprintf(stderr, "%d unused bytes of total %d.\n", y, romsize);
@@ -600,8 +627,8 @@ int main(int argc, char *argv[]) {
     /* program file data */
     else {
       for (i = program_start, y = 0; i < program_end; i++) {
-	if (rom_usage[i] == 0)
-	  y++;
+        if (rom_usage[i] == 0)
+          y++;
       }
 
       q = program_end - program_start + 1;
@@ -676,7 +703,7 @@ void procedures_at_exit(void) {
     f = obj_first->source_file_names_list;
     while (f != NULL) {
       if (f->name != NULL)
-	free(f->name);
+        free(f->name);
       fn = f->next;
       free(f);
       f = fn;
@@ -773,17 +800,78 @@ int parse_flags(char **flags, int flagc) {
   for (count = 1; count < flagc - 2; count++) {
     if (!strcmp(flags[count], "-b")) {
       if (output_mode_defined == 1)
-	return FAILED;
+        return FAILED;
       output_mode_defined++;
       output_mode = OUTPUT_PRG;
       continue;
     }
+    else if (!strcmp(flags[count], "-bS")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+        if (get_next_number(flags[count + 1], &program_address_start, NULL) == FAILED) {
+          /* address must be an address label */
+          strncpy(program_address_start_label, flags[count + 1], MAX_NAME_LENGTH);
+          program_address_start_type = LOAD_ADDRESS_TYPE_LABEL;
+        }
+        else
+          program_address_start_type = LOAD_ADDRESS_TYPE_VALUE;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-bE")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+        if (get_next_number(flags[count + 1], &program_address_end, NULL) == FAILED) {
+          /* address must be an address label */
+          strncpy(program_address_end_label, flags[count + 1], MAX_NAME_LENGTH);
+          program_address_end_type = LOAD_ADDRESS_TYPE_LABEL;
+        }
+        else
+          program_address_end_type = LOAD_ADDRESS_TYPE_VALUE;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;
+    }
     else if (!strcmp(flags[count], "-r")) {
       if (output_mode_defined == 1)
-	return FAILED;
+        return FAILED;
       output_mode_defined++;
       output_mode = OUTPUT_ROM;
       continue;
+    }
+    else if (!strcmp(flags[count], "-t")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+        if (!strcmp(flags[count + 1], "CBMPRG"))
+          output_type = OUTPUT_TYPE_CBM_PRG;
+        else
+          return FAILED;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;      
+    }
+    else if (!strcmp(flags[count], "-a")) {
+      if (count + 1 < flagc) {
+        /* get arg */
+        if (get_next_number(flags[count + 1], &load_address, NULL) == FAILED) {
+          /* load address must be an address label */
+          strncpy(load_address_label, flags[count + 1], MAX_NAME_LENGTH);
+          load_address_type = LOAD_ADDRESS_TYPE_LABEL;
+        }
+        else
+          load_address_type = LOAD_ADDRESS_TYPE_VALUE;
+      }
+      else
+        return FAILED;
+      count++;
+      continue;      
     }
     else if (!strcmp(flags[count], "-L")) {
       if (count + 1 < flagc) {
@@ -797,6 +885,10 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-i")) {
       listfile_data = YES;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-nS")) {
+      sort_sections = NO;
       continue;
     }
     else if (!strcmp(flags[count], "-v")) {
@@ -817,6 +909,10 @@ int parse_flags(char **flags, int flagc) {
     }
     else if (!strcmp(flags[count], "-d")) {
       discard_unreferenced_sections = ON;
+      continue;
+    }
+    else if (!strcmp(flags[count], "-D")) {
+      create_sizeof_definitions = NO;
       continue;
     }
     else {
@@ -856,9 +952,9 @@ int parse_and_set_libdir(char *c, int contains_flag) {
 
   localize_path(n);
 #if defined(MSDOS)
-  sprintf(ext_libdir, "%s\\", n);
+  snprintf(ext_libdir, sizeof(ext_libdir), "%s\\", n);
 #else
-  sprintf(ext_libdir, "%s/", n);
+  snprintf(ext_libdir, sizeof(ext_libdir), "%s/", n);
 #endif
   use_libdir = YES;
 

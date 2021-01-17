@@ -8,14 +8,16 @@
 
 #include "include_file.h"
 #include "pass_3.h"
+#include "printf.h"
 
 
 extern struct incbin_file_data *incbin_file_data_first, *ifd_tmp;
 extern struct section_def *sections_first, *sections_last, *sec_tmp, *sec_next;
 extern struct file_name_info *file_name_info_first, *file_name_info_last, *file_name_info_tmp;
+extern struct block_name *block_names;
 extern unsigned char *rom_banks, *rom_banks_usage_table;
 extern FILE *file_out_ptr;
-extern char *tmp_name, tmp[4096], emsg[1024];
+extern char *tmp_name, tmp[4096], emsg[1024], namespace[MAX_NAME_LENGTH + 1];
 extern int verbose_mode, section_status, cartridgetype, output_format;
 
 
@@ -23,17 +25,19 @@ struct label_def *label_next, *label_last, *label_tmp, *labels = NULL;
 struct map_t *global_unique_label_map = NULL;
 struct block *blocks = NULL;
 
-int dstruct_start, dstruct_item_offset, dstruct_item_size;
+static int dstruct_start, dstruct_item_offset, dstruct_item_size, mangled_label;
 
 #define XSTRINGIFY(x) #x
 #define STRINGIFY(x) XSTRINGIFY(x)
 #define STRING_READ_FORMAT ("%" STRINGIFY(MAX_NAME_LENGTH) "s ")
 
 
+
 int pass_3(void) {
 
   struct section_def *s;
   struct label_def *l;
+  struct block_name *bn;
   struct label_def *parent_labels[10];
   struct block *b;
   FILE *f_in;
@@ -47,6 +51,8 @@ int pass_3(void) {
   memset(parent_labels, 0, sizeof(parent_labels));
   s = NULL;
 
+  namespace[0] = 0;
+  
   if (verbose_mode == ON)
     printf("Internal pass 1...\n");
 
@@ -63,131 +69,153 @@ int pass_3(void) {
 
       case ' ':
       case 'E':
-	continue;
+        continue;
 
       case 'j':
-	inside_repeat++;
-	continue;
+        inside_repeat++;
+        continue;
       case 'J':
-	inside_repeat--;
-	continue;
+        inside_repeat--;
+        continue;
 
       case 'i':
-	fscanf(f_in, "%*s ");
-	inside_macro++;
-	continue;
+        fscanf(f_in, "%*s ");
+        inside_macro++;
+        continue;
       case 'I':
-	fscanf(f_in, "%*s ");
-	inside_macro--;
-	continue;
+        fscanf(f_in, "%*s ");
+        inside_macro--;
+        continue;
 
       case 'P':
-	add_old = add;
-	continue;
+        add_old = add;
+        continue;
       case 'p':
-	add = add_old;
-	continue;
+        add = add_old;
+        continue;
 
       case 'x':
       case 'o':
-	fscanf(f_in, "%d %*d ", &inz);
-	if (section_status == ON) {
-	  add += inz;
-	  continue;
-	}
+        fscanf(f_in, "%d %*d ", &inz);
+        if (section_status == ON) {
+          add += inz;
+          continue;
+        }
 
-	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
-	return FAILED;
+        fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
+        return FAILED;
 
       case 'd':
-	if (section_status == ON) {
-	  fscanf(f_in, "%*s ");
-	  add++;
-	  continue;
-	}
+        if (section_status == ON) {
+          fscanf(f_in, "%*s ");
+          add++;
+          continue;
+        }
 
-	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
-	return FAILED;
+        fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
+        return FAILED;
 
       case 'y':
-	if (section_status == ON) {
-	  fscanf(f_in, "%*d ");
-	  add += 2;
-	  continue;
-	}
+        if (section_status == ON) {
+          fscanf(f_in, "%*d ");
+          add += 2;
+          continue;
+        }
 
-	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
-	return FAILED;
+        fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
+        return FAILED;
 
+      case 'v':
+        fscanf(f_in, "%*d ");
+        continue;
+        
       case 'b':
-	fscanf(f_in, "%d ", &base);
-	continue;
+        fscanf(f_in, "%d ", &base);
+        continue;
 
       case 'f':
-	fscanf(f_in, "%d ", &file_name_id);
-	continue;
+        fscanf(f_in, "%d ", &file_name_id);
+        continue;
 
       case 'B':
-	fscanf(f_in, "%d %d ", &bank, &slot);
-	continue;
+        fscanf(f_in, "%d %d ", &bank, &slot);
+        continue;
 
       case 'k':
-	fscanf(f_in, "%d ", &line_number);
-	continue;
+        fscanf(f_in, "%d ", &line_number);
+        continue;
 
       case 'g':
-	b = calloc(sizeof(struct block), 1);
-	if (b == NULL) {
-	  fscanf(f_in, STRING_READ_FORMAT, tmp);
-	  fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
-		  get_file_name(file_name_id), line_number, tmp);
-	  return FAILED;
-	}
-	b->filename_id = file_name_id;
-	b->line_number = line_number;
-	b->next = blocks;
-	blocks = b;
-	fscanf(f_in, STRING_READ_FORMAT, b->name);
-	b->address = add;
-	continue;
+        fscanf(f_in, "%d ", &x);
+
+        bn = block_names;
+        while (bn != NULL) {
+          if (bn->id == x)
+            break;
+          bn = bn->next;
+        }
+        
+        b = calloc(sizeof(struct block), 1);
+        if (b == NULL) {
+          fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
+                  get_file_name(file_name_id), line_number, bn->name);
+          return FAILED;
+        }
+
+        b->filename_id = file_name_id;
+        b->line_number = line_number;
+        b->next = blocks;
+        blocks = b;
+        strcpy(b->name, bn->name);
+        b->address = add;
+        continue;
 
       case 'G':
-	b = blocks;
-	blocks = blocks->next;
-	printf("INTERNAL_PASS_1: Block \"%s\" is %d bytes in size.\n", b->name, add - b->address);
-	free(b);
-	continue;
+        b = blocks;
+        blocks = blocks->next;
+        printf("INTERNAL_PASS_1: Block \"%s\" is %d bytes in size.\n", b->name, add - b->address);
+        free(b);
+        continue;
+
+      case 't':
+        fscanf(f_in, "%d ", &inz);
+        if (inz == 0)
+          namespace[0] = 0;
+        else
+          fscanf(f_in, STRING_READ_FORMAT, namespace);
+        continue;
 
       case 'Z': /* breakpoint */
       case 'Y': /* symbol */
       case 'L': /* label */
-	l = calloc(sizeof(struct label_def), 1);
-	if (l == NULL) {
-	  fscanf(f_in, STRING_READ_FORMAT, tmp);
-	  fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for label \"%s\".\n",
-		  get_file_name(file_name_id), line_number, tmp);
-	  return FAILED;
-	}
+        l = calloc(sizeof(struct label_def), 1);
+        if (l == NULL) {
+          fscanf(f_in, STRING_READ_FORMAT, tmp);
+          fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for label \"%s\".\n",
+                  get_file_name(file_name_id), line_number, tmp);
+          return FAILED;
+        }
 
-	if (c == 'Y')
-	  l->symbol = 1;
-	else if (c == 'L')
-	  l->symbol = 0;
-	else
-	  l->symbol = 2;
+        if (c == 'Y')
+          l->symbol = 1;
+        else if (c == 'L')
+          l->symbol = 0;
+        else
+          l->symbol = 2;
 
-	if (c == 'Z')
-	  l->label[0] = 0;
-	else
-	  fscanf(f_in, STRING_READ_FORMAT, l->label);
+        if (c == 'Z')
+          l->label[0] = 0;
+        else
+          fscanf(f_in, STRING_READ_FORMAT, l->label);
 
-        if (c == 'L' && is_label_anonymous(l->label) == FAILED) {
+        mangled_label = NO;
+
+        if (c == 'L' && is_label_anonymous(l->label) == NO) {
           /* if the label has '@' at the start, mangle the label name to make it unique */
           int n = 0, m;
 
-          while (n < 10 && l->label[n] == '@') {
+          while (n < 10 && l->label[n] == '@')
             n++;
-          }
           m = n;
           while (m < 10)
             parent_labels[m++] = NULL;
@@ -201,38 +229,46 @@ int pass_3(void) {
           if (n >= 0) {
             if (mangle_label(l->label, parent_labels[n]->label, n, MAX_NAME_LENGTH) == FAILED)
               return FAILED;
+            mangled_label = YES;
           }
         }
 
-	l->next = NULL;
-	l->section_status = ON;
-	l->filename_id = file_name_id;
-	l->linenumber = line_number;
-	l->alive = ON;
-	l->section_id = s->id;
-        l->section_struct = s;
-	/* section labels get a relative address */
-	l->address = add;
-	l->bank = s->bank;
-	l->slot = s->slot;
-	l->base = base;
+        if (c == 'L' && is_label_anonymous(l->label) == NO && namespace[0] != 0 && mangled_label == NO) {
+          if (s == NULL || s->nspace == NULL) {
+            if (add_namespace(l->label, namespace, sizeof(l->label)) == FAILED)
+              return FAILED;
+          }
+        }
 
-	if (c == 'Z' || is_label_anonymous(l->label) == SUCCEEDED) {
-	  if (labels != NULL) {
-	    label_last->next = l;
-	    label_last = l;
-	  }
-	  else {
-	    labels = l;
-	    label_last = l;
-	  }
-	  continue;
-	}
+        l->next = NULL;
+        l->section_status = ON;
+        l->filename_id = file_name_id;
+        l->linenumber = line_number;
+        l->alive = ON;
+        l->section_id = s->id;
+        l->section_struct = s;
+        /* section labels get a relative address */
+        l->address = add;
+        l->bank = s->bank;
+        l->slot = s->slot;
+        l->base = base;
+
+        if (c == 'Z' || is_label_anonymous(l->label) == YES) {
+          if (labels != NULL) {
+            label_last->next = l;
+            label_last = l;
+          }
+          else {
+            labels = l;
+            label_last = l;
+          }
+          continue;
+        }
 
         /* check the label is not already defined */
 
-        sprintf(emsg, "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
-            get_file_name(file_name_id), line_number, l->label);
+        snprintf(emsg, sizeof(emsg), "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
+                 get_file_name(file_name_id), line_number, l->label);
 
         if (s != NULL) {
           /* always put the label into the section's label_map */
@@ -272,74 +308,94 @@ int pass_3(void) {
           }
         }
 
+        if (labels != NULL) {
+          label_last->next = l;
+          label_last = l;
+        }
+        else {
+          labels = l;
+          label_last = l;
+        }
 
-	if (labels != NULL) {
-	  label_last->next = l;
-	  label_last = l;
-	}
-	else {
-	  labels = l;
-	  label_last = l;
-	}
-
-	continue;
+        continue;
 
       case 'S':
-	fscanf(f_in, "%d ", &inz);
+        fscanf(f_in, "%d ", &inz);
 
-	add_old = add;
+        add_old = add;
 
-	s = sections_first;
-	while (s->id != inz)
-	  s = s->next;
+        s = sections_first;
+        while (s->id != inz)
+          s = s->next;
 
-	/* a .RAMSECTION? */
-	if (s->status == SECTION_STATUS_RAM) {
-	  s->address = 0;
-	  s->listfile_items = 1;
-	  s->listfile_ints = NULL;
-	  s->listfile_cmds = NULL;
-	  add = 0;
-	  section_status = ON;
-	  continue;
-	}
-
-	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
-	return FAILED;
+        /* a .RAMSECTION? */
+        if (s->status == SECTION_STATUS_RAM_FREE) {
+          s->address = 0;
+          s->listfile_items = 1;
+          s->listfile_ints = NULL;
+          s->listfile_cmds = NULL;
+          add = 0;
+          section_status = ON;
+          continue;
+        }
+        else if (s->status == SECTION_STATUS_RAM_FORCE) {
+          if (s->address < 0)
+            s->address = add;
+          else
+            add = s->address;
+          s->listfile_items = 1;
+          s->listfile_ints = NULL;
+          s->listfile_cmds = NULL;
+          section_status = ON;
+          continue;
+        }
+        else if (s->status == SECTION_STATUS_RAM_SEMIFREE || s->status == SECTION_STATUS_RAM_SEMISUBFREE) {
+          s->address = add;
+          s->listfile_items = 1;
+          s->listfile_ints = NULL;
+          s->listfile_cmds = NULL;
+          section_status = ON;
+          continue;
+        }
+        
+        fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
+        return FAILED;
 
       case 's':
-	s->size = add - s->address;
+        s->size = add - s->address;
 
-	/* discard an empty section? */
-	if (s->size == 0) {
-	  fprintf(stderr, "INTERNAL_PASS_1: %s: Discarding an empty section \"%s\".\n", get_file_name(file_name_id), s->name);
-	  s->alive = OFF;
+        /* discard an empty section? */
+        if (s->size == 0) {
+          fprintf(stderr, "INTERNAL_PASS_1: %s: Discarding an empty section \"%s\".\n", get_file_name(file_name_id), s->name);
+          s->alive = OFF;
 
-	  /* discard all labels which belong to this section */
-	  l = labels;
-	  while (l != NULL) {
-	    if (l->section_status == ON && l->section_id == s->id) {
-	      l->alive = OFF;
+          /* discard all labels which belong to this section */
+          l = labels;
+          while (l != NULL) {
+            if (l->section_status == ON && l->section_id == s->id) {
+              l->alive = OFF;
             }
-	    l = l->next;
+            l = l->next;
           }
-	}
+        }
 
-	if (s->advance_org == NO)
-	  add = add_old;
+        if (s->advance_org == NO)
+          add = add_old;
+        else
+          add = add_old + s->size;
 
-	section_status = OFF;
-	s = NULL;
-	continue;
+        section_status = OFF;
+        s = NULL;
+        continue;
 
       case 'O':
-	fscanf(f_in, "%d ", &add);
-	o++;
-	continue;
+        fscanf(f_in, "%d ", &add);
+        o++;
+        continue;
 
       default:
-	fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
-	return FAILED;
+        fprintf(stderr, "INTERNAL_PASS_1: .ORG needs to be set before any code/data can be accepted.\n");
+        return FAILED;
       }
     }
   }
@@ -349,58 +405,74 @@ int pass_3(void) {
 
       case ' ':
       case 'E':
-	continue;
+        continue;
 
       case 'j':
-	inside_repeat++;
-	continue;
+        inside_repeat++;
+        continue;
       case 'J':
-	inside_repeat--;
-	continue;
+        inside_repeat--;
+        continue;
 
       case 'i':
-	fscanf(f_in, "%*s ");
-	inside_macro++;
-	continue;
+        fscanf(f_in, "%*s ");
+        inside_macro++;
+        continue;
       case 'I':
-	fscanf(f_in, "%*s ");
-	inside_macro--;
-	continue;
+        fscanf(f_in, "%*s ");
+        inside_macro--;
+        continue;
 
       case 'f':
-	fscanf(f_in, "%d ", &file_name_id);
-	continue;
+        fscanf(f_in, "%d ", &file_name_id);
+        continue;
+
+      case 't':
+        fscanf(f_in, "%d ", &inz);
+        if (inz == 0)
+          namespace[0] = 0;
+        else
+          fscanf(f_in, STRING_READ_FORMAT, namespace);
+        continue;       
 
       case 'S':
-	fscanf(f_in, "%d ", &inz);
+        fscanf(f_in, "%d ", &inz);
 
-	add_old = add;
+        add_old = add;
 
-	s = sections_first;
-	while (s->id != inz)
-	  s = s->next;
+        s = sections_first;
+        while (s->id != inz)
+          s = s->next;
 
-	if (s->status == SECTION_STATUS_FREE)
-	  add = 0;
+        if (s->status == SECTION_STATUS_FREE)
+          add = 0;
 
-	s->address = add;
-	s->bank = bank;
-	s->base = base;
-	s->slot = slot;
-	s->listfile_items = 1;
-	s->listfile_ints = NULL;
-	s->listfile_cmds = NULL;
-	section_status = ON;
-	o++;
-	continue;
+        if (s->status == SECTION_STATUS_RAM_FORCE) {
+          if (s->address < 0)
+            s->address = add;
+          else
+            add = s->address;
+        }
+        else
+          s->address = add;
+
+        s->bank = bank;
+        s->base = base;
+        s->slot = slot;
+        s->listfile_items = 1;
+        s->listfile_ints = NULL;
+        s->listfile_cmds = NULL;
+        section_status = ON;
+        o++;
+        continue;
 
       case 'k':
-	fscanf(f_in, "%d ", &line_number);
-	continue;
+        fscanf(f_in, "%d ", &line_number);
+        continue;
 
       default:
-	fprintf(stderr, "INTERNAL_PASS_1: A section must be open before any code/data can be accepted.\n");
-	return FAILED;
+        fprintf(stderr, "INTERNAL_PASS_1: A section must be open before any code/data can be accepted.\n");
+        return FAILED;
       }
     }
   }
@@ -442,25 +514,34 @@ int pass_3(void) {
     case 'A':
     case 'S':
       if (c == 'A')
-	fscanf(f_in, "%d %*d", &inz);
+        fscanf(f_in, "%d %*d", &inz);
       else
-	fscanf(f_in, "%d ", &inz);
+        fscanf(f_in, "%d ", &inz);
 
       add_old = add;
 
       s = sections_first;
       while (s->id != inz)
-	s = s->next;
+        s = s->next;
 
-      if (s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_RAM)
-	add = 0;
+      if (s->status == SECTION_STATUS_FREE || s->status == SECTION_STATUS_RAM_FREE)
+        add = 0;
 
-      if (s->status != SECTION_STATUS_RAM) {
+      if (s->status != SECTION_STATUS_RAM_FREE && s->status != SECTION_STATUS_RAM_FORCE && s->status != SECTION_STATUS_RAM_SEMIFREE && s->status != SECTION_STATUS_RAM_SEMISUBFREE) {
         s->bank = bank;
         s->base = base;
         s->slot = slot;
       }
-      s->address = add;
+
+      if (s->status == SECTION_STATUS_RAM_FORCE) {
+        if (s->address < 0)
+          s->address = add;
+        else
+          add = s->address;
+      }
+      else
+        s->address = add;
+      
       s->listfile_items = 1;
       s->listfile_ints = NULL;
       s->listfile_cmds = NULL;
@@ -487,8 +568,10 @@ int pass_3(void) {
 
       /* some sections don't affect the ORG outside of them */
       if (s->advance_org == NO)
-	add = add_old;
-
+        add = add_old;
+      else
+        add = add_old + s->size;
+      
       section_status = OFF;
       s = NULL;
       continue;
@@ -524,6 +607,10 @@ int pass_3(void) {
       add += 3;
       continue;
 
+    case 'v':
+      fscanf(f_in, "%*d ");
+      continue;
+        
     case 'b':
       fscanf(f_in, "%d ", &base);
       continue;
@@ -536,9 +623,7 @@ int pass_3(void) {
       add++;
       continue;
 
-#ifdef W65816
     case 'M':
-#endif
     case 'r':
       fscanf(f_in, "%*s ");
       add += 2;
@@ -576,18 +661,26 @@ int pass_3(void) {
       continue;
 
     case 'g':
+      fscanf(f_in, "%d ", &x);
+
+      bn = block_names;
+      while (bn != NULL) {
+        if (bn->id == x)
+          break;
+        bn = bn->next;
+      }
+
       b = calloc(sizeof(struct block), 1);
       if (b == NULL) {
-	fscanf(f_in, STRING_READ_FORMAT, tmp);
-	fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
-		get_file_name(file_name_id), line_number, tmp);
-	return FAILED;
+        fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for block \"%s\".\n",
+                get_file_name(file_name_id), line_number, bn->name);
+        return FAILED;
       }
       b->filename_id = file_name_id;
       b->line_number = line_number;
       b->next = blocks;
       blocks = b;
-      fscanf(f_in, STRING_READ_FORMAT, b->name);
+      strcpy(b->name, bn->name);
       b->address = add;
       continue;
 
@@ -598,36 +691,45 @@ int pass_3(void) {
       free(b);
       continue;
 
+    case 't':
+      fscanf(f_in, "%d ", &inz);
+      if (inz == 0)
+        namespace[0] = 0;
+      else
+        fscanf(f_in, STRING_READ_FORMAT, namespace);
+      continue;
+
     case 'Z': /* breakpoint */
     case 'Y': /* symbol */
     case 'L': /* label */
       l = calloc(sizeof(struct label_def), 1);
       if (l == NULL) {
-	fscanf(f_in, STRING_READ_FORMAT, tmp);
-	fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for label \"%s\".\n",
-		get_file_name(file_name_id), line_number, tmp);
-	return FAILED;
+        fscanf(f_in, STRING_READ_FORMAT, tmp);
+        fprintf(stderr, "%s:%d INTERNAL_PASS_1: Out of memory while trying to allocate room for label \"%s\".\n",
+                get_file_name(file_name_id), line_number, tmp);
+        return FAILED;
       }
 
       if (c == 'Y')
-	l->symbol = 1;
+        l->symbol = 1;
       else if (c == 'L')
-	l->symbol = 0;
+        l->symbol = 0;
       else
-	l->symbol = 2;
+        l->symbol = 2;
 
       if (c == 'Z')
-	l->label[0] = 0;
+        l->label[0] = 0;
       else
-	fscanf(f_in, STRING_READ_FORMAT, l->label);
+        fscanf(f_in, STRING_READ_FORMAT, l->label);
 
-      if (c == 'L' && is_label_anonymous(l->label) == FAILED) {
+      mangled_label = NO;
+      
+      if (c == 'L' && is_label_anonymous(l->label) == NO) {
         /* if the label has '@' at the start, mangle the label name to make it unique */
         int n = 0, m;
 
-        while (n < 10 && l->label[n] == '@') {
+        while (n < 10 && l->label[n] == '@')
           n++;
-        }
         m = n;
         while (m < 10)
           parent_labels[m++] = NULL;
@@ -641,9 +743,17 @@ int pass_3(void) {
         if (n >= 0) {
           if (mangle_label(l->label, parent_labels[n]->label, n, MAX_NAME_LENGTH) == FAILED)
             return FAILED;
+          mangled_label = YES;
         }
       }
 
+      if (c == 'L' && is_label_anonymous(l->label) == NO && namespace[0] != 0 && mangled_label == NO) {
+        if (s == NULL || s->nspace == NULL) {
+          if (add_namespace(l->label, namespace, sizeof(l->label)) == FAILED)
+            return FAILED;
+        }
+      }
+      
       l->next = NULL;
       l->section_status = section_status;
       l->filename_id = file_name_id;
@@ -658,29 +768,31 @@ int pass_3(void) {
         l->slot = s->slot;
       }
       else {
-	l->section_id = 0;
+        l->section_id = 0;
         l->section_struct = NULL;
-	l->address = add;
-	l->bank = bank;
-	l->slot = slot;
+        l->address = add;
+        l->bank = bank;
+        l->slot = slot;
       }
 
       l->base = base;
 
-      if (c == 'Z' || is_label_anonymous(l->label) == SUCCEEDED) {
-	if (labels != NULL) {
-	  label_last->next = l;
-	  label_last = l;
-	}
-	else {
-	  labels = l;
-	  label_last = l;
-	}
-	continue;
+      if (c == 'Z' || is_label_anonymous(l->label) == YES) {
+        if (labels != NULL) {
+          label_last->next = l;
+          label_last = l;
+        }
+        else {
+          labels = l;
+          label_last = l;
+        }
+        continue;
       }
 
-      sprintf(emsg, "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
-	      get_file_name(file_name_id), line_number, l->label);
+      /* check the label is not already defined */
+
+      snprintf(emsg, sizeof(emsg), "%s:%d: INTERNAL_PASS_1: Label \"%s\" was defined for the second time.\n",
+               get_file_name(file_name_id), line_number, l->label);
 
       if (s != NULL) {
         /* always put the label into the section's label_map */
@@ -734,13 +846,13 @@ int pass_3(void) {
     case 'f':
       fscanf(f_in, "%d ", &file_name_id);
       if (s != NULL)
-	s->listfile_items++;
+        s->listfile_items++;
       continue;
 
     case 'k':
       fscanf(f_in, "%d ", &line_number);
       if (s != NULL && inside_macro == 0 && inside_repeat == 0)
-	s->listfile_items++;
+        s->listfile_items++;
       continue;
 
     case 'e':
@@ -789,18 +901,18 @@ int is_label_anonymous(char *label) {
   char c;
 
   if (strcmp(label, "__") == 0)
-    return SUCCEEDED;
+    return YES;
 
   c = *label;
   if (!(c == '-' || c == '+'))
-    return FAILED;
+    return NO;
   length = (int)strlen(label);
   for (i = 0; i < length; i++) {
     if (*(label + i) != c)
-      return FAILED;
+      return NO;
   }
 
-  return SUCCEEDED;
+  return YES;
 }
 
 
@@ -820,6 +932,27 @@ int mangle_label(char *label, char *parent, int n, unsigned int label_size) {
   }
 
   buf[label_size-1] = 0;
+  strcpy(label, buf);
+
+  return SUCCEEDED;
+}
+
+
+int add_namespace(char *label, char *name_space, unsigned int label_size) {
+
+  char buf[MAX_NAME_LENGTH*2+2];
+
+  if (strncmp(label, "SECTIONSTART_", strlen("SECTIONSTART_")) == 0)
+    return SUCCEEDED;
+  if (strncmp(label, "SECTIONEND_", strlen("SECTIONEND_")) == 0)
+    return SUCCEEDED;
+  
+  snprintf(buf, sizeof(buf), "%s.%s", name_space, label);
+  if (strlen(buf) >= label_size) {
+    fprintf(stderr, "ADD_NAMESPACE: Label expands to \"%s\" which is %d characters too large.\n", buf, (int)(strlen(buf)-label_size+1));
+    return FAILED;
+  }
+
   strcpy(label, buf);
 
   return SUCCEEDED;

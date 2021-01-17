@@ -9,16 +9,18 @@ Here's the order in which the data is placed into the output:
 4. Group 1 directives.
 
 === ================================================================
-ALL All, GB-Z80, Z80, 6502, 65C02, 6510, 65816, HUC6280, SPC-700,
-    8008, and 6800 versions apply.
+ALL All, GB-Z80, Z80, 6502, 65C02, 65CE02, 6510, 65816, HUC6280,
+    SPC-700, 6800, 6801, 6809, 8008 and 8080 versions apply.
 GB  Only the GB-Z80 version applies.
 GB8 Only the GB-Z80 and 65816 versions apply.
 Z80 Only the Z80 version applies.
 658 Only the 65816 version applies.
-680 Only the 6800 version applies.
+680 Only the 6800, 6801 and 6809 versions apply.
+800 Only the 8008 version applies.
+808 Only the 8080 version applies.
 SPC Only the SPC-700 version applies.
-65x Only the 6502, 65C02, 6510, 65816 and HUC6280 versions apply.
-!GB Only the Z80, 6502, 65C02, 6510, 65816, HUC6280, SPC-700, 8008, and 6800
+65x Only the 6502, 65C02, 65CE02, 6510, 65816 and HUC6280 versions apply.
+!GB Only the Z80, 6502, 65C02, 65CE02, 6510, 65816, HUC6280 and SPC-700
     versions apply.
 === ================================================================
 
@@ -77,6 +79,8 @@ Group 3:
 658  ``.24BIT``
 65x  ``.8BIT``
 658  ``.ACCU 8``
+658  ``.WDC``
+658  ``.NOWDC`` 
 ALL  ``.ASC "HELLO WORLD!"``
 ALL  ``.ASCTABLE``
 ALL  ``.ASCIITABLE``
@@ -97,6 +101,7 @@ ALL  ``.DBSIN 0.2, 10, 3.2, 120, 1.3``
 ALL  ``.DEFINE IF $FF0F``
 ALL  ``.DEF IF $FF0F``
 658  ``.DL $102030, $405060``
+658  ``.DLM filtermacro 1, 2, 3``
 ALL  ``.DS 256, $10``
 ALL  ``.DSB 256, $10``
 658  ``.DSL 16, $102030``
@@ -142,6 +147,7 @@ ALL  ``.IFNDEFM \2``
 ALL  ``.IFNEQ DEBUG 2``
 ALL  ``.INCBIN "sorority.bin"``
 ALL  ``.INCDIR "/usr/programming/gb/include/"``
+ALL  ``.INC "cgb_hardware.i"``
 ALL  ``.INCLUDE "cgb_hardware.i"``
 658  ``.INDEX 8``
 ALL  ``.INPUT NAME``
@@ -155,7 +161,7 @@ ALL  ``.ORGA $150``
 ALL  ``.PRINT "Numbers 1 and 10: ", DEC 1, " $", HEX 10, "\n"``
 ALL  ``.PRINTT "Here we are...\n"``
 ALL  ``.PRINTV DEC DEBUG+1``
-ALL  ``.RAMSECTION "Vars" BANK 0 SLOT 1 ALIGN 4``
+ALL  ``.RAMSECTION "Vars" BANK 0 SLOT 1 ALIGN 256 OFFSET 32``
 ALL  ``.REDEFINE IF $F``
 ALL  ``.REDEF IF $F``
 ALL  ``.REPEAT 6``
@@ -169,6 +175,8 @@ ALL  ``.SECTION "Init" FORCE``
 ALL  ``.SHIFT``
 ALL  ``.SLOT 1``
 ALL  ``.STRUCT enemy_object``
+ALL  ``.STRINGMAPTABLE script "script.tbl"``
+ALL  ``.STRINGMAP script "Hello\n"``
 ALL  ``.SYM SAUSAGE``
 ALL  ``.SYMBOL SAUSAGE``
 ALL  ``.TABLE byte, word, byte``
@@ -437,6 +445,38 @@ register size.
 This is not a compulsory directive.
 
 
+``.WDC``
+--------
+
+Turns WLA-65816 into a mode where it accepts WDC standard assembly code, in
+addition to WLA's own syntax. In WDC standard mode ::
+
+    AND <x  ; 8-bit
+    AND |?  ; 16-bit
+    AND >&  ; 24-bit
+
+are the same as ::
+    
+    AND x.b ; 8-bit
+    AND ?.w ; 16-bit
+    AND &.l ; 24-bit
+
+in WLA's own syntax. Beware of the situations where you use '<' and '>' to
+get the low and high bytes!
+
+This is not a compulsory directive.
+
+
+``.NOWDC``
+----------
+
+Turns WLA-65816 into a mode where it accepts its default syntax assembly
+code, which doesn't support WDC standard. This is the default mode for
+WLA-65816.
+
+This is not a compulsory directive.
+
+
 ``.ASM``
 --------
 
@@ -496,13 +536,13 @@ The first argument is the starting angle. Angle value ranges from ``0`` to
 ``359.999``..., but you can supply WLA with values that are out of the range -
 WLA fixes them ok. The value can be integer or float.
 
-The second one descibes the amount of additional angles. The example
+The second argument descibes the amount of additional angles. The example
 will define 11 angles.
 
-The third one is the adder value which is added to the angle value when
+The third argument is the adder value which is added to the angle value when
 next angle is calculated. The value can be integer or float.
 
-The fourth and fifth ones can be seen from the pseudo code below, which
+The fourth and fifth arguments can be seen from the pseudo code below, which
 also describes how ``.DBCOS`` works. The values can be integer or float.
 
 Remember that ``cos`` (and ``sin``) here returns values ranging from
@@ -529,7 +569,7 @@ This is not a compulsory directive.
 ``.DWCOS 0.2, 10, 3.2, 1024, 1.3``
 ----------------------------------
 
-Analogous to ``.DBCOS`` (but defines words).
+Analogous to ``.DBCOS`` (but defines 16-bit words).
 
 This is not a compulsory directive.
 
@@ -537,7 +577,7 @@ This is not a compulsory directive.
 ``.DWSIN 0.2, 10, 3.2, 1024, 1.3``
 ----------------------------------
 
-Analogous to ``.DBCOS`` (but defines words and does ``sin()`` instead of
+Analogous to ``.DBCOS`` (but defines 16-bit words and does ``sin()`` instead of
 ``cos()``).
 
 This is not a compulsory directive.
@@ -660,13 +700,15 @@ This is not a compulsory directive.
 ``.SMSHEADER``
 --------------
 
-::
+All the fields in ``.SMSHEADER`` are optional and default to zero except ROMSIZE. If
+ROMSIZE is not specified it will be calculated automatically::
 
     .SMSHEADER
         PRODUCTCODE 26, 70, 2 ; 2.5 bytes
         VERSION 1             ; 0-15
         REGIONCODE 4          ; 3-7
         RESERVEDSPACE 0, 0    ; 2 bytes
+	ROMSIZE 0             ; 0-15
     .ENDSMS
 
 The ``REGIONCODE`` also defines the system:
@@ -825,6 +867,14 @@ will then silently search the specified ``.INCDIR``.
 This is not a compulsory directive.
 
 
+``.INC "cgb_hardware.i"``
+-----------------------------
+
+``INC`` is an alias for ``INCLUDE``.
+
+This is not a compulsory directive.
+
+
 ``.INCLUDE "cgb_hardware.i"``
 -----------------------------
 
@@ -834,6 +884,30 @@ directory. If the ``INCDIR`` is specified in the command line, WLA will first
 try to find the file specified in that directory. Then proceed as mentioned
 before if it is not found.
 
+If you want to prefix all labels inside the included file with something, use ::
+
+    .INCLUDE "music_player.s" NAMESPACE "musicplayer"
+
+In the case of this example, all sections, macros, labels and references to
+those labels inside the included file are prefixed with "musicplayer.", though
+there are a couple of exceptions. If a ``.SECTION`` inside the included file has
+its own namespace, the ``.INCLUDE`` 's namespace doesn't affect it. If a ``.SECTION``
+inside the included file uses ``APPENDTO`` with a section name that starts with
+``"*:"``, that ``APPENDTO`` is considered to belong to the global namespace and we
+won't prefix it with the ``.INCLUDE`` 's namespace.
+
+Note that you can create the file name from pieces ::
+
+    .INCLUDE ROOTDIR, SUBDIR, "cthulhu.s" NAMESPACE "cthulhu"
+
+This might end up looking for a file "root/subdir/cthulhu.s", depending on the
+definitions.
+
+If you are using the ``.INCLUDE`` inside a ``.MACRO`` and want to have the file
+included only once, use the keyword ``ONCE`` ::
+
+    .INCLUDE "include_one.s" NAMESPACE "once" ONCE
+  
 This is not a compulsory directive.
 
 
@@ -877,7 +951,7 @@ Want to circulate all the included bytes through a filter macro? Do this::
 
 The filter macro is executed for each byte of the included data, data
 byte being the first argument, and offset from the beginning being the
-second parameter, just like in the case of ``.DBM`` and ``.DWM``.
+second parameter, just like in the case of ``.DBM``, ``.DWM`` and ``.DLM``.
 
 And you can combine all these four commands::
 
@@ -1030,7 +1104,7 @@ inside a macro or just as a plain value. Look at the following examples
 for more information.
 
 You can also type ``\!`` to get the name of the source file currently being
-parsed.
+parsed. ``\.`` can be used the same way to get the name of the macro.
 
 Also, if you want to use macro arguments in e.g., calculation, you can
 type ``\X`` where ``X`` is the number of the argument. Another way to refer
@@ -1060,8 +1134,8 @@ Here are some examples::
         LD B, \2
         LD C, \3
         LD D, :\4        ; load the bank number of \4 into register D.
-        NOPMONSTER       ; note that \4 must be a label for this to work.
-        LD HL, 1<<\1
+        NOPMONSTER       ; note that \4 must be a label or ROM address
+        LD HL, 1<<\1     ; for this to work...
     .INCBIN \5
     .ENDM
     
@@ -1105,6 +1179,22 @@ And here's how they can be used::
 
 Note that you must separate the arguments with commas.
 
+Here is a special case::
+
+    .DEF prev_test $0000
+
+    .MACRO .test ARGS str
+    __\._\@+1:                     ; this will become __.test_1 during
+        .PRINT __\._\@+1, "\n"     ; the first call, __.test_2 during the
+        .WORD  prev_test           ; second call...
+        .REDEF prev_test __\._\@+1
+        .BYTE  str.length, str, 0
+    .ENDM
+
+When creating a label inside a macro, you can add a super simple
+addition or subtraction after ``\@`` to adjust the value. Only one
+digit number is supported.
+
 If you want to give names to the macro's arguments you can do that
 by listing them in order after supplying ARGS after the macro's name.
 
@@ -1121,6 +1211,34 @@ Here's an example::
       .PRINTT "Totsan! Ogenki ka?\n"
     .ENDM
 
+You can also use ``\?`` to ask for the type of the argument in the
+following fashion::
+    
+    .macro .differentThings
+      .if \?1 == ARG_NUMBER
+        .db 1
+      .endif
+      .if \?1 == ARG_STRING
+        .db 2
+      .endif
+      .if \?1 == ARG_LABEL
+        .db 3
+      .endif
+      .if \?1 == ARG_PENDING_CALCULATION
+        .db 4
+      .endif
+    .endm
+  
+    .section "TestingDifferentThings"
+    TDT1:
+        .differentThings 100
+        .differentThings "HELLO"
+        .differentThings TDT1
+        .differentThings TDT1+1
+    .ends
+
+The previous example will result in .db 1, 2, 3, 4
+    
 This is not a compulsory directive.
 
 
@@ -1302,6 +1420,12 @@ This is a compulsory directive.
 Changes the currently active memory slot. This directive is meant to be
 used with ``SUPERFREE`` sections, where only the slot number is constant
 when placing the sections.
+
+You can use the number, address or name of the slot here::
+
+    .SLOT 1           ; Use slot 1.
+    .SLOT $2000       ; Use a slot with starting address of $2000.
+    .SLOT "SlotOne"   ; Use a slot with a name "SlotOne"
 
 This is not a compulsory directive.
 
@@ -1620,6 +1744,57 @@ the characters using the mapping given via ``.ASCIITABLE``.
 
 This is not a compulsory directive.
 
+
+``.STRINGMAPTABLE script "script.tbl"``
+---------------------------------------
+
+``.STRINGMAPTABLE``'s only purpose is to provide string mapping for 
+``.STRINGMAP``. Take a look at the example::
+
+    .STRINGMAPTABLE script "script.tbl"
+
+This will load the file "script.tbl" and define a new string mapping called 
+"script". This file is in the "table file" format commonly used for game 
+translations; take a look at an example of one::
+
+    00=A
+    01=B
+    ; This is a comment
+    ff01=あ
+    ff02=いうえ
+    fe=\n
+
+The values to the left of the '=' are a variable number of bytes expressed
+in hex, which map to the text value on the right. Note that depending on the
+text encoding of the file, this may be a variable number of bytes too. Thus
+this is a more flexible version of ``.ASCIITABLE``.
+
+After you've given the ``.STRINGMAPTABLE``, use ``.STRINGMAP`` to define bytes 
+using this mapping. For example::
+
+    .STRINGMAP script, "いうえA\n"
+
+This will map to the byte values ``FF 02 00 FE``, provided the source file and
+TBL file use the same string encoding - use of UTF-8 is advised. 
+
+Note that all characters must be defined in the mapping - there is no fallback 
+to ASCII encoding. You also cannot mix in byte values like with ``.DB`` and 
+``.ASC``.
+
+You can define multiple named string map tables.
+
+This is not a compulsory directive.
+
+
+``.STRINGMAP script "Hello\n"``
+-------------------------------
+
+``.ASC`` is an alias for ``.DB``, but if you use ``.ASC`` it will remap
+the characters using the mapping given via ``.ASCIITABLE``.
+
+This is not a compulsory directive.
+
+
 ``.DW 16000, 10, 255``
 ----------------------
 
@@ -1641,6 +1816,14 @@ This is not a compulsory directive.
 --------------------------
 
 ``.ADDR`` is an alias for ``.DW``.
+
+This is not a compulsory directive.
+
+
+``.DWM filtermacro 1, 2, 3``
+----------------------------
+
+Defines 16-bit words using a filter macro. Works just like ``.DBM`` and ``.DLM``.
 
 This is not a compulsory directive.
 
@@ -1670,20 +1853,11 @@ This is not a compulsory directive.
 This is not a compulsory directive.
 
 
-``.DWM filtermacro 1, 2, 3``
+``.DLM filtermacro 1, 2, 3``
 ----------------------------
 
-Defines 16-bit words using a filter macro. All the data is passed to
-``filtermacro`` in the first argument, one word at a time, and the word that
-actually gets defined is the value of definition ``_OUT`` (``_out`` works as
-well). The second macro argument holds the offset from the beginning (the
-first word) in bytes (the series being ``0``, ``2``, ``4``, ``6``, ...).
-
-Here's an example of a filter macro that increments all the words by one::
-
-    .macro increment
-    .redefine _out \1+1
-    .endm
+Defines 24-bit words using a filter macro. Works just like ``.DBM`` and ``.DWM``.
+Works only on wla-65816.
 
 This is not a compulsory directive.
 
@@ -1752,7 +1926,9 @@ Note that ::
 
     .DEFINE AAA = 10   ; the same as ".DEFINE AAA 10".
 
-works as well.
+works as well. And this works also ::
+
+    AAA = 10
 
 This is not a compulsory directive.
 
@@ -2152,10 +2328,11 @@ Here's an example::
     enemyboss INSTANCEOF enemy_object
     .ENDS
 
-This will create labels like ``enemies``, ``enemies.id``, ``enemies.x``,
-``enemies.y`` and so on. Label ``enemies`` is followed by four ``enemy_object``
-structures, and only the first one is labeled. After there four come
-``enemyman`` and ``enemyboss`` instances.
+This will create definitions like ``enemies``, ``enemies.1.id``, ``enemies.1.x``,
+``enemies.1.y`` and so on. Definition ``enemies`` is followed by four ``enemy_object``
+instances. After those four come ``enemyman`` and ``enemyboss`` instances, but
+as they are single instances, their definitions lack the index: ``enemyman``,
+``enemyman.id``, ``enemyman.x``, ``enemyman.y`` and so on.
 
 Take a look at the documentation on ``.RAMSECTION`` & ``.ENUM``, they have more
 examples of how you can use ``.STRUCT`` s.
@@ -2186,7 +2363,7 @@ Begins the memory map definition. Using ``.MEMORYMAP`` you must first
 describe the target system's memory architecture to WLA before it
 can start to compile the code. ``.MEMORYMAP`` gives you the freedom to
 use WLA to compile data for numerous different real
-Z80/6502/65C02/6510/6800/65816/HUC6280/SPC-700
+Z80/6502/65C02/65CE02/6510/6800/6801/6809/8008/8080/65816/HUC6280/SPC-700
 based systems.
 
 Examples::
@@ -2200,14 +2377,14 @@ Examples::
     
     .MEMORYMAP
     DEFAULTSLOT 0
-    SLOT 0 $0000 $4000
-    SLOT 1 $4000 $4000
+    SLOT 0 $0000 $4000 "ROMSlot"
+    SLOT 1 $4000 $4000 "RAMSlot"
     .ENDME
     
     .MEMORYMAP
     DEFAULTSLOT 0
-    SLOT 0 START $0000 SIZE $4000
-    SLOT 1 START $4000 SIZE $4000
+    SLOT 0 START $0000 SIZE $4000 NAME "ROMSlot"
+    SLOT 1 START $4000 SIZE $4000 NAME "RAMSlot"
     .ENDME
     
     .MEMORYMAP
@@ -2258,8 +2435,6 @@ inserted anywhere. Check ``.BANK`` definition for more information.
 This is a compulsory directive, and make sure all the object files share
 the same ``.MEMORYMAP`` or you can't link them together.
 
-Note that both ``START`` and ``SIZE`` are optional!
-
 
 ``.ENDME``
 ----------
@@ -2278,8 +2453,8 @@ describe the project's ROM banks. Use ``.ROMBANKMAP`` when not all the
 ROM banks are of equal size. Note that you can use ``.ROMBANKSIZE`` and
 ``.ROMBANKS`` instead of ``.ROMBANKMAP``, but that's only when the ROM banks
 are equal in size. Some systems based on a real Z80 chip,
-6502/65C02/6510/65816/6800/HUC6280/SPC-700 CPUs and Pocket Voice cartridges
-for Game Boy require the usage of this directive.
+6502/65C02/65CE02/6510/65816/6800/6801/6809/8008/8080/HUC6280/SPC-700 CPUs and
+Pocket Voice cartridges for Game Boy require the usage of this directive.
 
 Examples::
 
@@ -2375,6 +2550,10 @@ It's possible to force WLALINK to align the ``FREE``, ``SEMIFREE`` and
 
     .SECTION "Init" SIZE 100 ALIGN 4 FREE
 
+If you need an offset from the alignment, use OFFSET::
+
+    .SECTION "Init" SIZE 10 ALIGN 256 OFFSET 32 FREE
+
 And if you want that WLA returns the ``ORG`` to what it was before issuing
 the section, put ``RETURNORG`` at the end of the parameter list::
 
@@ -2393,7 +2572,10 @@ and calculations.
 
 If a section name begins with an exclamation mark (``!``) it tells
 WLALINK to not to drop it, even if you use WLALINK's ability to discard
-all unreferenced sections and there are no references to the section.
+all unreferenced sections and there are no references to the section. You can
+achieve the same effect by adding ``KEEP`` to the end of the list::
+
+    .SECTION "Init" SIZE 100 ALIGN 4 FREE RETURNORG KEEP  
 
 ``FORCE`` after the name of the section tells WLA that the section *must* be
 inserted so it starts at ``.ORG``. ``FORCE`` can be replaced with ``FREE``
@@ -2485,23 +2667,27 @@ It is also possible to merge two or more sections using ``APPENDTO``::
 This is not a compulsory directive.
 
 
-``.RAMSECTION "Vars" BANK 0 SLOT 1 ALIGN 4``
---------------------------------------------
+``.RAMSECTION "Vars" BANK 0 SLOT 1 ALIGN 256 OFFSET 32``
+--------------------------------------------------------
 
 ``RAMSECTION`` s accept only variable labels and variable sizes, and the
 syntax to define these is identical to ``.ENUM`` (all the syntax rules that
 apply to ``.ENUM`` apply also to ``.RAMSECTION``). Additionally you can embed
 structures (``.STRUCT``) into a ``RAMSECTION``. Here's an example::
 
-    .RAMSECTION "Some of my variables" BANK 0 SLOT 1 PRIORITY 100
+    .RAMSECTION "Some of my variables" BANK 0 SLOT 1 RETURNORG PRIORITY 100
     vbi_counter:   db
     player_lives:  db
     .ENDS
 
-``RAMSECTION`` s behave like ``FREE`` sections, but instead of filling any banks
-RAM sections will occupy RAM banks inside slots. You can fill different slots
-with different variable labels. It's recommend that you create separate
-slots for holding variables (as ROM and RAM don't usually overlap).
+By default ``RAMSECTION`` s behave like ``FREE`` sections, but instead of
+filling any banks RAM sections will occupy RAM banks inside slots. You can
+fill different slots with different variable labels. It's recommend that
+you create separate slots for holding variables (as ROM and RAM don't
+usually overlap).
+
+If you want that WLA returns the ``ORG`` to what it was before issuing
+the ``RAMSECTION``, use the keyword ``RETURNORG``.
 
 Keyword ``PRIORITY`` means just the same as ``PRIORITY`` of a ``.SECTION``,
 it is used to prioritize some sections when placing them in the output ROM/PRG.
@@ -2517,9 +2703,9 @@ Anyway, here's another example::
     .MEMORYMAP
     SLOTSIZE $4000
     DEFAULTSLOT 0
-    SLOT 0 $0000   ; ROM slot 0.
-    SLOT 1 $4000   ; ROM slot 1.
-    SLOT 2 $A000   ; variable RAM is here!
+    SLOT 0 $0000           ; ROM slot 0.
+    SLOT 1 $4000           ; ROM slot 1.
+    SLOT 2 $A000 "RAMSlot" ; variable RAM is here!
     .ENDME
 
     .STRUCT game_object
@@ -2534,15 +2720,19 @@ Anyway, here's another example::
     enemy     INSTANCEOF game_object
     .ENDS
 
-    .RAMSECTION "vars 2" BANK 1 SLOT 2
+    .RAMSECTION "vars 2" BANK 1 SLOT "RAMSlot"  ; Here we use slot 2
     moomin2   DW
     .ENDS
 
-    .RAMSECTION "vars 3" BANK 1 SLOT 2
+    .RAMSECTION "vars 3" BANK 1 SLOT $A000      ; Slot 2 here as well...
     moomin3_all .DSB 3
     moomin3_a    DB
     moomin3_b    DB
     moomin3_c    DB
+    .ENDS
+
+    .RAMSECTION "vars 4" BANK 1 SLOT $A000
+    enemies      INSTANCEOF game_object 2 STARTFROM 0 ; If you leave away "STARTFROM 0" the indexing will start from 1
     .ENDS
 
 If no other RAM sections are used, then this is what you will get::
@@ -2558,6 +2748,13 @@ If no other RAM sections are used, then this is what you will get::
     .DEFINE moomin3_a   $A002
     .DEFINE moomin3_b   $A003
     .DEFINE moomin3_c   $A004
+    .DEFINE enemies     $A005
+    .DEFINE enemies.0   $A005
+    .DEFINE enemies.0.x $A005
+    .DEFINE enemies.0.y $A006
+    .DEFINE enemies.1   $A007
+    .DEFINE enemies.1.x $A007
+    .DEFINE enemies.1.y $A008
 
 ``BANK`` in ``.RAMSECTION`` is optional so you can leave it away if you
 don't switch RAM banks, or the target doesn't have them (defaults to 0).
@@ -2578,6 +2775,39 @@ It is also possible to merge two or more sections using ``APPENDTO``::
     .RAMSECTION "RAMSection2" APPENDTO "RAMSection1"
     label2    DB
     .ENDS
+
+If you wist to skip some bytes without giving them labels, use ``.`` as
+a label::
+
+    .RAMSECTION "ZERO_PAGE" BANK 0 SLOT 0
+    UsingThisByte1: DB
+    .               DB ; RESERVED
+    .               DB ; RESERVED
+    UsingThisByte2: DB
+    .               DB ; RESERVED
+    UsingThisByte3: DB
+    .ENDS
+
+If you want to use ``FORCE`` RAMSECTIONs that are fixed to a specified
+address, do as follows::
+
+    .RAMSECTION "FixedRAMSection" BANK 0 SLOT 0 ORGA $0 FORCE
+    .               DB ; SYSTEM RESERVED
+    .               DB ; SYSTEM RESERVED
+    PlayerX         DB
+    PlayerY         DB
+    .ENDS
+
+Other types that are supported: ``SEMIFREE`` and ``SEMISUBFREE``.
+
+Here's the order in which WLA writes the RAM sections:
+
+1. ``FORCE``
+2. ``SEMISUBFREE``
+3. ``SEMIFREE`` & ``FREE``
+
+NOTE: You can use ``ORGA`` to specify the fixed address for a ``FORCE``
+``RAMSECTION``. ``ORG`` is also supported.
 
 NOTE: When you have ``RAMSECTION`` s inside libraries, you must give
 them BANKs and SLOTs in the linkfile, under [ramsections].
@@ -2743,7 +2973,7 @@ This begins the SNES header definition, and automatically defines
     ``$0B``  16 Megabits
     ``$0C``  32 Megabits
    ======== =============
-* ``SRAMSIZE $01`` - Places the given 8-bit value into ``$7FD8`` (``$FFD8`` in
+* ``SRAMSIZE $01`` - Places the given 2-bit value into ``$7FD8`` (``$FFD8`` in
   HiROM, ``$40FFD8`` and ``$FFD8`` in ExHiROM). I believe these are the only possible
   values:
 
