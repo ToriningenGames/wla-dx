@@ -128,7 +128,7 @@ extern struct incbin_file_data *incbin_file_data_first, *ifd_tmp;
 
 int macro_stack_size = 0, repeat_stack_size = 0;
 
-#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(MCS6510) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defubed(MC68000)
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(MCS6510) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(MC68000)
 int xbit_size = 0;
 int accu_size = 8, index_size = 8;
 #endif
@@ -589,13 +589,13 @@ int macro_insert_long_db(char *name) {
       return FAILED;
     }
     /* long, for platforms using 16 bit integers */
-    fprintf(file_out_ptr, "z%d ", (long)d->value);
+    fprintf(file_out_ptr, "z%ld ", (long)d->value);
     /*
       fprintf(stderr, ".DLM: VALUE: %d\n", (long)d->value);
     */
   }
   else if (d->type == DEFINITION_TYPE_STACK) {
-    fprintf(file_out_ptr, "T%d ", (long)d->value);
+    fprintf(file_out_ptr, "T%ld ", (long)d->value);
     /*
       fprintf(stderr, ".DLM: STACK: %d\n", (long)d->value);
     */
@@ -633,13 +633,13 @@ int macro_insert_quad_db(char *name) {
       return FAILED;
     }
     /* long to ensure 32 bit data */
-    fprintf(file_out_ptr, "l%d ", (long)d->value);
+    fprintf(file_out_ptr, "l%ld ", (long)d->value);
     /*
       fprintf(stderr, ".DLM: VALUE: %d\n", (long)d->value);
     */
   }
   else if (d->type == DEFINITION_TYPE_STACK) {
-    fprintf(file_out_ptr, "K%d ", (long)d->value);
+    fprintf(file_out_ptr, "K%ld ", (long)d->value);
     /*
       fprintf(stderr, ".DLM: STACK: %d\n", (long)d->value);
     */
