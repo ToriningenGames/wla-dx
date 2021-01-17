@@ -57,9 +57,11 @@
 /* c - stack (1 byte)      */
 /* C - stack (2 bytes)     */
 /* T - stack (3 bytes)     */
+/* K - stack (4 bytes)     */
 /* d - data (1 byte)       */
 /* y - data (2 bytes)      */
 /* z - data (3 bytes)      */
+/* l - data (4 bytes)      */
 /* D - data block (incbin) */
 /* O - origin              */
 /* o - absolute origin     */
@@ -346,9 +348,10 @@
 
 /* opcode types */
 
-/* TBD */
+/* 0  - plain text 16b */
+/* 1  - ?              */
 
-#define OP_SIZE_MAX 12
+#define OP_SIZE_MAX 24
 #define ARCH_STR "MC68000"
 #define WLA_NAME "68000"
 
@@ -426,17 +429,20 @@ struct optcode {
 #if defined(Z80)
   unsigned char hex_x;
 #endif
-#if defined(Z80) || defined(GB) || defined(I8008) || defined(I8080)
+#if defined(Z80) || defined(GB) || defined(I8008) || defined(I8080) || defined(MC68000)
   unsigned char value;
 #endif
 #if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MCS6510) || defined(MC6800) || defined(MC6801) || defined(MC6809)
   unsigned char skip_8bit;
 #endif
-#if defined(W65816)
+#if defined(W65816) || defined(MC68000)
   unsigned char skip_xbit;
 #endif
 #if defined(MC6809)
   unsigned char addressing_mode_bits;
+#endif
+#if defined(MC68000)
+  unsigned char supervisor;
 #endif
 };
 

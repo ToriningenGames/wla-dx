@@ -128,7 +128,7 @@ extern struct incbin_file_data *incbin_file_data_first, *ifd_tmp;
 
 int macro_stack_size = 0, repeat_stack_size = 0;
 
-#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(MCS6510) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MCS6502) || defined(WDC65C02) || defined(CSG65CE02) || defined(MCS6510) || defined(W65816) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defubed(MC68000)
 int xbit_size = 0;
 int accu_size = 8, index_size = 8;
 #endif
@@ -588,15 +588,16 @@ int macro_insert_long_db(char *name) {
       print_error(emsg, ERROR_DIR);
       return FAILED;
     }
-    fprintf(file_out_ptr, "z%d ", (int)d->value);
+    /* long, for platforms using 16 bit integers */
+    fprintf(file_out_ptr, "z%d ", (long)d->value);
     /*
-      fprintf(stderr, ".DLM: VALUE: %d\n", (int)d->value);
+      fprintf(stderr, ".DLM: VALUE: %d\n", (long)d->value);
     */
   }
   else if (d->type == DEFINITION_TYPE_STACK) {
-    fprintf(file_out_ptr, "T%d ", (int)d->value);
+    fprintf(file_out_ptr, "T%d ", (long)d->value);
     /*
-      fprintf(stderr, ".DLM: STACK: %d\n", (int)d->value);
+      fprintf(stderr, ".DLM: STACK: %d\n", (long)d->value);
     */
   }
   else {
@@ -610,6 +611,49 @@ int macro_insert_long_db(char *name) {
 
 #endif
 
+#if MC68000
+
+int macro_insert_quad_db(char *name) {
+  
+  struct definition *d;
+  
+  if (hashmap_get(defines_map, "_out", (void*)&d) != MAP_OK)
+  hashmap_get(defines_map, "_OUT", (void*)&d);
+  
+  if (d == NULL) {
+    snprintf(emsg, sizeof(emsg), "No \"_OUT/_out\" defined, .%s takes its output from there.\n", name);
+    print_error(emsg, ERROR_DIR);
+    return FAILED;
+  }
+  
+  if (d->type == DEFINITION_TYPE_VALUE) {
+    if (d->value < -2147483648 || d->value > 4294967295) {
+      snprintf(emsg, sizeof(emsg), ".%s expects 32-bit data, %d is out of range!\n", name, (int)d->value);
+      print_error(emsg, ERROR_DIR);
+      return FAILED;
+    }
+    /* long to ensure 32 bit data */
+    fprintf(file_out_ptr, "l%d ", (long)d->value);
+    /*
+      fprintf(stderr, ".DLM: VALUE: %d\n", (long)d->value);
+    */
+  }
+  else if (d->type == DEFINITION_TYPE_STACK) {
+    fprintf(file_out_ptr, "K%d ", (long)d->value);
+    /*
+      fprintf(stderr, ".DLM: STACK: %d\n", (long)d->value);
+    */
+  }
+  else {
+    snprintf(emsg, sizeof(emsg), ".%s cannot handle strings in \"_OUT/_out\".\n", name);
+    print_error(emsg, ERROR_DIR);
+    return FAILED;
+  }
+  
+  return SUCCEEDED;
+}
+
+#endif
 
 struct structure* get_structure(char *name) {
 
@@ -1192,6 +1236,9 @@ int evaluate_token(void) {
 #endif
 #ifdef MC6800
 #include "decode_6800.c"
+#endif
+#ifdef MC68000
+#include "decode_68000.c"
 #endif
 #ifdef MC6801
 #include "decode_6801.c"
