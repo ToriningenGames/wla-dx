@@ -4,9 +4,11 @@ struct optcode opt_table[] = {
 
   { "ILLEGAL", 0x4afc, 0, 0, 0, 0 },
   { "NOP", 0x4e71, 0, 0, 0, 0 },
+  
+  { "RESET", 0x4e70, 0, 0, 0, 1 },
 
   /* returns */
-  { "RTE", 0x4773, 0, 0, 0, 1 },
+  { "RTE", 0x4e73, 0, 0, 0, 1 },
   { "RTR", 0x4e77, 0, 0, 0, 0 },
   { "RTS", 0x4e75, 0, 0, 0, 0 },
   
@@ -18,8 +20,6 @@ struct optcode opt_table[] = {
   { "SWAP D5", 0x4845, 0, 0, 0, 0 },
   { "SWAP D6", 0x4846, 0, 0, 0, 0 },
   { "SWAP D7", 0x4847, 0, 0, 0, 0 },
-  
-  { "RESET", 0x4e70, 0, 0, 0, 1 },
   
   { "TRAPV", 0x4e76, 0, 0, 0, 0},
   
