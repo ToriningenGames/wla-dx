@@ -3128,6 +3128,102 @@ int directive_dw_word_addr(void) {
 }
 
 
+#ifdef MC68000
+
+int directive_dq_quad_hugeaddr(void) {
+  
+  char bak[256];
+  
+  fprintf(file_out_ptr, "k%d ", active_file_info_last->line_current);
+  
+  strcpy(bak, cp);
+  
+  inz = input_number();
+  for (ind = 0; inz == SUCCEEDED || inz == INPUT_NUMBER_ADDRESS_LABEL || inz == INPUT_NUMBER_STACK; ind++) {
+    if (inz == SUCCEEDED && (d < -2147483648 || d > 4294967296)) {
+      snprintf(emsg, sizeof(emsg), ".%s expects 32-bit data, %d is out of range!\n", bak, d);
+      print_error(emsg, ERROR_DIR);
+      return FAILED;
+    }
+
+    if (inz == SUCCEEDED)
+      fprintf(file_out_ptr, "y%d", d);
+    else if (inz == INPUT_NUMBER_ADDRESS_LABEL)
+      fprintf(file_out_ptr, "r%s ", label);
+    else if (inz == INPUT_NUMBER_STACK)
+      fprintf(file_out_ptr, "C%d ", latest_stack);
+
+    inz = input_number();
+  }
+
+  if (inz == FAILED)
+    return FAILED;
+
+  if ((inz == INPUT_NUMBER_EOL || inz == INPUT_NUMBER_STRING) && ind == 0) {
+    snprintf(emsg, sizeof(emsg), ".%s needs data.\n", bak);
+    print_error(emsg, ERROR_INP);
+    return FAILED;
+  }
+
+  if (inz == INPUT_NUMBER_EOL)
+    next_line();
+
+  return SUCCEEDED;
+}
+
+
+int directive_dsq(void) {
+
+  int q;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (q != SUCCEEDED) {
+    print_error(".DSQ needs size.\n", ERROR_INP);
+    return FAILED;
+  }
+
+  if (d < 1 || d > 4294967296) {
+    snprintf(emsg, sizeof(emsg), ".DSQ expects a 32-bit positive integer as size, %d is out of range!\n", d);
+    print_error(emsg, ERROR_DIR);
+    return FAILED;
+  }
+
+  inz = d;
+
+  q = input_number();
+  if (q == FAILED)
+    return FAILED;
+  if (!(q == SUCCEEDED || q == INPUT_NUMBER_ADDRESS_LABEL || q == INPUT_NUMBER_STACK)) {
+    print_error(".DSQ needs data.\n", ERROR_INP);
+    return FAILED;
+  }
+
+  if (q == SUCCEEDED && (d < -2147483648 || d > 4294967296)) {
+    snprintf(emsg, sizeof(emsg), ".DSQ expects 32-bit data, %d is out of range!\n", d);
+    print_error(emsg, ERROR_DIR);
+    return FAILED;
+  }
+
+  if (q == SUCCEEDED)
+    fprintf(file_out_ptr, "H%d %d ", inz, d);
+  else if (q == INPUT_NUMBER_ADDRESS_LABEL) {
+    fprintf(file_out_ptr, "k%d ", active_file_info_last->line_current);
+    for (q = 0; q < inz; q++)
+      fprintf(file_out_ptr, "w%s ", label);
+  }
+  else if (q == INPUT_NUMBER_STACK) {
+    for (q = 0; q < inz; q++)
+      fprintf(file_out_ptr, "K%d ", latest_stack);
+  }
+
+  return SUCCEEDED;
+}
+
+#endif
+
+
 #ifdef W65816
 
 int directive_dl_long_faraddr(void) {
@@ -8334,6 +8430,19 @@ int parse_directive(void) {
   if (strcaselesscmp(cp, "DW") == 0 || strcaselesscmp(cp, "WORD") == 0 || strcaselesscmp(cp, "ADDR") == 0)
     return directive_dw_word_addr();
 
+#ifdef MC68000
+
+  /* DQ/QUAD/HUGEADDR? */
+  if (strcaselesscmp(cp, "DQ") == 0 || strcaselesscmp(cp, "QUAD") == 0 || strcaselesscmp(cp, "HUGEADDR") == 0)
+    return directive_dq_quad_hugeaddr();
+
+  /* DSQ? */
+  
+  if (strcaselesscmp(cp, "DSQ") == 0)
+    return directive_dsq();
+
+#endif
+
 #ifdef W65816
   
   /* DLM? */
@@ -9319,7 +9428,7 @@ int parse_directive(void) {
     return SUCCEEDED;
   }
 
-#if defined(MCS6502) || defined(MCS6510) || defined(W65816) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MCS6502) || defined(MCS6510) || defined(W65816) || defined(WDC65C02) || defined(CSG65CE02) || defined(HUC6280) || defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(MC68000)
 
   /* 8BIT */
 
@@ -9332,6 +9441,17 @@ int parse_directive(void) {
 
   if (strcaselesscmp(cp, "16BIT") == 0) {
     xbit_size = 16;
+    return SUCCEEDED;
+  }
+
+#endif
+
+#ifdef MC68000
+  
+  /* 32BIT */
+  
+  if (strcaselesscmp(cp, "32BIT") == 0) {
+    xbit_size = 32;
     return SUCCEEDED;
   }
 

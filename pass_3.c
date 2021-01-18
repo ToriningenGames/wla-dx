@@ -41,7 +41,8 @@ int pass_3(void) {
   struct label_def *parent_labels[10];
   struct block *b;
   FILE *f_in;
-  int bank = 0, slot = 0, add = 0, file_name_id = 0, inz, line_number = 0, o, add_old = 0, inside_macro = 0, inside_repeat = 0;
+  unsigned long add = 0, add_old = 0;
+  int bank = 0, slot = 0, file_name_id = 0, inz, line_number = 0, o, inside_macro = 0, inside_repeat = 0;
   int base = 0x00;
   int x, y;
   char c;
@@ -389,7 +390,7 @@ int pass_3(void) {
         continue;
 
       case 'O':
-        fscanf(f_in, "%d ", &add);
+        fscanf(f_in, "%ld ", &add);
         o++;
         continue;
 
@@ -586,6 +587,29 @@ int pass_3(void) {
       fscanf(f_in, "%d %*d ", &inz);
       add += inz * 2;
       continue;
+
+#ifdef MC68000
+    case 'H':
+      fscanf(f_in, "%d %*d ", &inz);
+      add += inz * 4;
+      continue;
+      
+    case 'l':
+    case 'w':
+      fscanf(f_in, "%*s ");
+      add += 4;
+      continue;
+      
+    case 'm':
+      fscanf(f_in, "%*s ");
+      add += 4;
+      continue;
+
+    case 'K':
+      fscanf(f_in, "%*d ");
+      add += 4;
+      continue;
+#endif
 
 #ifdef W65816
     case 'h':

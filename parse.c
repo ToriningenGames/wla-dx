@@ -297,7 +297,7 @@ int input_number(void) {
         return FAILED;
       }
 
-      /* does the MACRO argument number end with a .b/.w/.l? */
+      /* does the MACRO argument number end with a .b/.w/.l/.q? */
       if (e == '.') {
         e = buffer[i+1];
         if (e == 'b' || e == 'B') {
@@ -312,6 +312,11 @@ int input_number(void) {
         }
         else if (e == 'l' || e == 'L') {
           operand_hint = HINT_24BIT;
+          operand_hint_type = HINT_TYPE_GIVEN;
+          i += 2;
+        }
+        else if (e == 'q' || e == 'Q') {
+          operand_hint = HINT_32BIT;
           operand_hint_type = HINT_TYPE_GIVEN;
           i += 2;
         }
@@ -380,10 +385,17 @@ int input_number(void) {
         operand_hint_type = HINT_TYPE_GIVEN;
         i += 2;
       }
+      else if (e == 'q' || e == 'Q') {
+        operand_hint = HINT_32BIT;
+        operand_hint_type = HINT_TYPE_GIVEN;
+        i += 2;
+      }
     }
 
     if (operand_hint == HINT_NONE) {
-      if (d > 0xFFFF && d <= 0xFFFFFF)
+      if (d > 0xFFFFFF && d <= 0xFFFFFFFF)
+        operand_hint = HINT_32BIT;
+      else if (d > 0xFFFF && d <= 0xFFFFFF)
         operand_hint = HINT_24BIT;
       else if (d > 0xFF)
         operand_hint = HINT_16BIT;
@@ -468,6 +480,12 @@ int input_number(void) {
           i += 2;
           break;
         }
+        else if (e == 'q' || e == 'Q') {
+          operand_hint = HINT_32BIT;
+          operand_hint_type = HINT_TYPE_GIVEN;
+          i += 2;
+          break;
+        }
       }
       else if ((e >= 'a' && e <= 'z') || (e >= 'A' && e <= 'Z')) {
         /* a number directly followed by a letter when parsing a integer/float -> syntax error */
@@ -482,7 +500,9 @@ int input_number(void) {
     d = (int)parsed_double;
 
     if (operand_hint == HINT_NONE) {
-      if (d > 0xFFFF && d <= 0xFFFFFF)
+      if (d > 0xFFFFFF && d <= 0xFFFFFFFF)
+        operand_hint = HINT_32BIT;
+      else if (d > 0xFFFF && d <= 0xFFFFFF)
         operand_hint = HINT_24BIT;
       else if (d > 0xFF)
         operand_hint = HINT_16BIT;
@@ -529,6 +549,11 @@ int input_number(void) {
       }
       else if (e == 'l' || e == 'L') {
         operand_hint = HINT_24BIT;
+        operand_hint_type = HINT_TYPE_GIVEN;
+        i += 2;
+      }
+      else if (e == 'q' || e == 'Q') {
+        operand_hint = HINT_32BIT;
         operand_hint_type = HINT_TYPE_GIVEN;
         i += 2;
       }
@@ -655,6 +680,11 @@ int input_number(void) {
       operand_hint_type = HINT_TYPE_GIVEN;
       k -= 2;
     }
+    else if (label[k-1] == 'q' || label[k-1] == 'Q') {
+      operand_hint = HINT_32BIT;
+      operand_hint_type = HINT_TYPE_GIVEN;
+      k -= 2;
+    }
   }
 
   label[k] = 0;
@@ -689,7 +719,9 @@ int input_number(void) {
       d = (int)tmp_def->value;
 
       if (operand_hint == HINT_NONE) {
-        if (d > 0xFFFF && d <= 0xFFFFFF)
+        if (d > 0xFFFFFF && d <= 0xFFFFFFFF)
+          operand_hint = HINT_32BIT;
+        else if (d > 0xFFFF && d <= 0xFFFFFF)
           operand_hint = HINT_24BIT;
         else if (d > 0xFF)
           operand_hint = HINT_16BIT;

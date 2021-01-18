@@ -56,6 +56,7 @@
 /* A - absolute section    */
 /* c - stack (1 byte)      */
 /* C - stack (2 bytes)     */
+/* N - stack (13 bits)     */
 /* T - stack (3 bytes)     */
 /* K - stack (4 bytes)     */
 /* d - data (1 byte)       */
@@ -71,13 +72,16 @@
 /* r - 16-bit reference    */
 /* R - 8-bit pc ref        */
 /* M - 16-bit pc ref       */
+/* m - 32-bit pc ref       */
 /* Q - 8-bit reference     */
 /* q - 24-bit reference    */
+/* w - 32-bit reference    */
 /* S - section             */
 /* s - end of section      */
 /* x - dsb                 */
 /* X - dsw                 */
 /* h - dsl                 */
+/* H - dsq                 */
 /* E - end of file         */
 /* f - file name id        */
 /* k - line number         */
@@ -349,7 +353,9 @@
 /* opcode types */
 
 /* 0  - plain text 16b */
-/* 1  - ?              */
+/* 1  - x              */
+/* 2  - ?              */
+/* 3  - *              */
 
 #define OP_SIZE_MAX 24
 #define ARCH_STR "MC68000"

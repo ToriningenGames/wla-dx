@@ -330,7 +330,7 @@ int stack_calculate(char *in, int *value) {
       b++;
       in++;
     }
-    else if (*in == '.' && (*(in+1) == 'b' || *(in+1) == 'B' || *(in+1) == 'w' || *(in+1) == 'W' || *(in+1) == 'l' || *(in+1) == 'L')) {
+    else if (*in == '.' && (*(in+1) == 'b' || *(in+1) == 'B' || *(in+1) == 'w' || *(in+1) == 'W' || *(in+1) == 'l' || *(in+1) == 'L' || *(in+1) == 'q' || *(in+1) == 'Q')) {
       in++;
       d = operand_hint;
       if (*in == 'b' || *in == 'B') {
@@ -345,6 +345,11 @@ int stack_calculate(char *in, int *value) {
       }
       else if (*in == 'l' || *in == 'L') {
         operand_hint = HINT_24BIT;
+        operand_hint_type = HINT_TYPE_GIVEN;
+        in++;
+      }
+      else if (*in == 'q' || *in == 'Q') {
+        operand_hint = HINT_32BIT;
         operand_hint_type = HINT_TYPE_GIVEN;
         in++;
       }

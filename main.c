@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
   ext_incdirs.max_name_size_bytes = MAX_NAME_LENGTH + 1;
 
   /* select little/big endianess */
-#if defined(MC6800) || defined(MC6801) || defined(MC6809)
+#if defined(MC6800) || defined(MC6801) || defined(MC6809) || defined(MC68000)
   little_endian = NO;
 #else
   little_endian = YES;

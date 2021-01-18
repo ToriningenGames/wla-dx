@@ -61,6 +61,10 @@ extern int computesneschecksum_defined, sramsize, sramsize_defined, exlorom_defi
 extern int computesmschecksum_defined, smstag_defined, smsheader_defined;
 #endif
 
+#ifdef MC68000
+int third_byte;
+#endif
+
 struct label_def *unknown_labels = NULL, *unknown_labels_last = NULL, *tul, *ltmp;
 struct label_def *unknown_header_labels = NULL, *unknown_header_labels_last = NULL;
 struct label_def *parent_labels[10];
@@ -494,6 +498,46 @@ int pass_4(void) {
       continue;
 
 #endif
+
+#ifdef MC68000
+        
+  case 'H':
+    fscanf(file_out_ptr, "%d %d", &ind, &inz);
+    x = inz & 0xFF;
+    i = (inz >> 8) & 0xFF;
+    third_byte = (inz >> 16) & 0xFF;
+    inz = (inz >> 24) & 0xFF;
+    
+    /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+    snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing DSQ data", get_file_name(filename_id), line_number);
+    
+    while (ind > 0) {
+      if (little_endian == YES) {
+        if (mem_insert(x) == FAILED)
+          return FAILED;
+        if (mem_insert(i) == FAILED)
+          return FAILED;
+        if (mem_insert(thrid_byte) == FAILED)
+          return FAILED;
+        if (mem_insert(inz) == FAILED)
+          return FAILED;
+      }
+      else {
+        if (mem_insert(inz) == FAILED)
+          return FAILED;
+        if (mem_insert(third_byte) == FAILED)
+          return FAILED;
+        if (mem_insert(i) == FAILED)
+          return FAILED;
+        if (mem_insert(x) == FAILED)
+          return FAILED;
+      }
+      ind--;
+    }
+    
+    continue;
+
+#endif
         
       /* DATA & OPTCODE */
 
@@ -563,6 +607,42 @@ int pass_4(void) {
           return FAILED;
       }
 
+      continue;
+
+#endif
+
+#ifdef MC68000
+    case 'l':
+      fscanf(file_out_ptr, "%d", &inz);
+      x = inz & 0xFF;
+      ind = (inz >> 8) & 0xFF;
+      third_byte = (inz >> 16) & 0xFF;
+      inz = (inz >> 24) & 0xFF;
+      
+      /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+      snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing three bytes", get_file_name(filename_id), line_number);
+      
+      if (little_endian == YES) {
+        if (mem_insert(x) == FAILED)
+          return FAILED;
+        if (mem_insert(ind) == FAILED)
+          return FAILED;
+        if (mem_insert(third_byte) == FAILED)
+          return FAILED;
+        if (mem_insert(inz) == FAILED)
+          return FAILED;
+      }
+      else {
+        if (mem_insert(inz) == FAILED)
+          return FAILED;
+        if (mem_insert(third_byte) == FAILED)
+          return FAILED;
+        if (mem_insert(ind) == FAILED)
+          return FAILED;
+        if (mem_insert(x) == FAILED)
+          return FAILED;
+      }
+      
       continue;
 
 #endif
@@ -897,6 +977,205 @@ int pass_4(void) {
       /* create a what-we-are-doing message for mem_insert*() warnings/errors */
       snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 24-bit computation", get_file_name(filename_id), line_number);
 
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+
+      continue;
+      
+      /* 32BIT COMPUTATION */
+    
+    case 'K':
+      fscanf(file_out_ptr, "%d", &inz);
+
+      if (bankheader_status == OFF)
+        stacks_tmp = stacks_first;
+      else
+        stacks_tmp = stacks_header_first;
+
+      while (stacks_tmp != NULL) {
+        if (stacks_tmp->id == inz)
+          break;
+        stacks_tmp = stacks_tmp->next;
+      }
+
+      if (stacks_tmp == NULL) {
+        fprintf(stderr, "%s:%d: INTERNAL_PASS_2: Could not find computation stack number %d. WLA corruption detected. Please send a bug report!\n", get_file_name(filename_id), line_number, inz);
+        return FAILED;
+      }
+
+      if (stacks_tmp->section_status == ON) {
+        /* relative address, to the beginning of the section */
+        stacks_tmp->address = sec_tmp->i;
+      }
+      else {
+        /* complete address, in ROM memory */
+        stacks_tmp->address = pc_bank;
+      }
+
+      stacks_tmp->bank = rom_bank;
+      stacks_tmp->slot = slot;
+      stacks_tmp->type = STACK_TYPE_24BIT;
+      stacks_tmp->base = base;
+
+      if (mangle_stack_references(stacks_tmp) == FAILED)
+        return FAILED;
+
+      if (namespace[0] != 0) {
+        if (section_status == OFF || sec_tmp->nspace == NULL) {
+          if (add_namespace_to_stack_references(stacks_tmp, namespace) == FAILED)
+            return FAILED;
+        }
+      }
+        
+      /* this stack was referred from the code */
+      stacks_tmp->position = STACK_POSITION_CODE;
+
+      /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+      snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 24-bit computation", get_file_name(filename_id), line_number);
+
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+
+      continue;
+      
+      /* 32BIT REFERENCE */
+    
+    case 'w':
+      fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
+
+      if (namespace[0] != 0) {
+        if (section_status == OFF || sec_tmp->nspace == NULL) {
+          if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+            return FAILED;
+        }
+      }
+          
+      x = 0;
+      hashmap_get(defines_map, tmp, (void*)&tmp_def);
+      if (tmp_def != NULL) {
+        if (tmp_def->type == DEFINITION_TYPE_STRING) {
+          fprintf(stderr, "%s:%d: INTERNAL_PASS_2: Reference to a string definition \"%s\"?\n", get_file_name(filename_id), line_number, tmp);
+          return FAILED;
+        }
+        else if (tmp_def->type != DEFINITION_TYPE_STACK) {
+          o = (int)tmp_def->value;
+          x = 1;
+
+          /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+          snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 32-bit reference", get_file_name(filename_id), line_number);
+
+          if (little_endian == YES) {
+            if (mem_insert(o & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 8) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 16) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 24) & 0xFF) == FAILED)
+              return FAILED;
+          }
+          else {
+            if (mem_insert((o >> 24) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 16) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 8) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert(o & 0xFF) == FAILED)
+              return FAILED;
+          }
+        }
+      }
+
+      if (x == 1)
+        continue;
+
+      if (new_unknown_reference(REFERENCE_TYPE_DIRECT_24BIT) == FAILED)
+        return FAILED;
+
+      /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+      snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 24-bit reference", get_file_name(filename_id), line_number);
+
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
+
+      continue;
+      
+      /* 32BIT PC RELATIVE REFERENCE */
+    case 'm':
+      fscanf(file_out_ptr, STRING_READ_FORMAT, tmp);
+
+      if (namespace[0] != 0) {
+        if (section_status == OFF || sec_tmp->nspace == NULL) {
+          if (add_namespace_to_reference(tmp, namespace, sizeof(tmp)) == FAILED)
+            return FAILED;
+        }
+      }
+                
+      x = 0;
+      hashmap_get(defines_map, tmp, (void*)&tmp_def);
+      if (tmp_def != NULL) {
+        if (tmp_def->type == DEFINITION_TYPE_STRING) {
+          fprintf(stderr, "%s:%d: INTERNAL_PASS_2: Reference to a string definition \"%s\"?\n", get_file_name(filename_id), line_number, tmp);
+          return FAILED;
+        }
+        else if (tmp_def->type != DEFINITION_TYPE_STACK) {
+          o = (int)tmp_def->value;
+          x = 1;
+
+          /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+          snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Writing a 32-bit reference", get_file_name(filename_id), line_number);
+
+          if (little_endian == YES) {
+            if (mem_insert(o & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 8) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 16) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 24) & 0xFF) == FAILED)
+              return FAILED;
+          }
+          else {
+            if (mem_insert((o >> 24) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 16) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert((o >> 8) & 0xFF) == FAILED)
+              return FAILED;
+            if (mem_insert(o & 0xFF) == FAILED)
+              return FAILED;
+          }
+        }
+      }
+
+      if (x == 1)
+        continue;
+
+      if (new_unknown_reference(REFERENCE_TYPE_RELATIVE_32BIT) == FAILED)
+        return FAILED;
+
+      /* create a what-we-are-doing message for mem_insert*() warnings/errors */
+      snprintf(mem_insert_action, sizeof(mem_insert_action), "%s:%d: Inserting padding for a 32-bit reference", get_file_name(filename_id), line_number);
+
+      if (mem_insert_padding() == FAILED)
+        return FAILED;
       if (mem_insert_padding() == FAILED)
         return FAILED;
       if (mem_insert_padding() == FAILED)
@@ -2118,7 +2397,7 @@ int mem_insert_padding(void) {
 }
 
 
-int mem_insert_absolute(int add, unsigned char x) {
+int mem_insert_absolute(long add, unsigned char x) {
 
   if (add >= max_address) {
     fprintf(stderr, "MEM_INSERT_ABSOLUTE: The current address ($%.4x) exceeds the size of the ROM ($%.4x).\n", add, max_address);
